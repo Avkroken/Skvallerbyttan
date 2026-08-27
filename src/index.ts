@@ -38,10 +38,38 @@ function base64url(input: string | ArrayBuffer): string {
   return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function pemBytes(pem: string): ArrayBuffer {
-  const body = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, "");
+function derLength(length: number): Uint8Array {
+  if (length < 0x80) return Uint8Array.of(length);
+  const bytes: number[] = [];
+  for (let value = length; value > 0; value >>>= 8) bytes.unshift(value & 0xff);
+  return Uint8Array.of(0x80 | bytes.length, ...bytes);
+}
+
+function der(tag: number, value: Uint8Array): Uint8Array {
+  const length = derLength(value.length);
+  return Uint8Array.from([tag, ...length, ...value]);
+}
+
+function pemPkcs8Bytes(pem: string): ArrayBuffer {
+  const pkcs1 = pem.includes("-----BEGIN RSA PRIVATE KEY-----");
+  const body = pem
+    .replace(/-----BEGIN (?:RSA )?PRIVATE KEY-----|-----END (?:RSA )?PRIVATE KEY-----|\s/g, "");
+  if (!body) throw new Error("GitHub App private key PEM is empty or invalid");
   const binary = atob(body);
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0)).buffer;
+  const keyBytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  if (!pkcs1) return keyBytes.buffer;
+
+  const version = Uint8Array.of(0x02, 0x01, 0x00);
+  const rsaEncryptionAlgorithm = Uint8Array.of(
+    0x30, 0x0d,
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+    0x05, 0x00,
+  );
+  return der(0x30, Uint8Array.from([
+    ...version,
+    ...rsaEncryptionAlgorithm,
+    ...der(0x04, keyBytes),
+  ])).buffer;
 }
 
 function configured(env: Env): boolean {
@@ -60,7 +88,7 @@ async function appJwt(env: Env): Promise<string> {
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = base64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: env.SKVALLERBYTTAN_CLIENT_ID }));
   const unsigned = `${header}.${payload}`;
-  const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.SKVALLERBYTTAN_APP_PRIVATE_KEY), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const key = await crypto.subtle.importKey("pkcs8", pemPkcs8Bytes(env.SKVALLERBYTTAN_APP_PRIVATE_KEY), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
   return `${unsigned}.${base64url(signature)}`;
 }
