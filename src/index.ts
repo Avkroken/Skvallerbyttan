@@ -57,7 +57,7 @@ function pemPkcs8Bytes(pem: string): ArrayBuffer {
   if (!body) throw new Error("GitHub App private key PEM is empty or invalid");
   const binary = atob(body);
   const keyBytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  if (!pkcs1) return keyBytes.buffer;
+  if (!pkcs1) return keyBytes.slice().buffer;
 
   const version = Uint8Array.of(0x02, 0x01, 0x00);
   const rsaEncryptionAlgorithm = Uint8Array.of(
@@ -69,7 +69,7 @@ function pemPkcs8Bytes(pem: string): ArrayBuffer {
     ...version,
     ...rsaEncryptionAlgorithm,
     ...der(0x04, keyBytes),
-  ])).buffer;
+  ])).slice().buffer;
 }
 
 function configured(env: Env): boolean {
