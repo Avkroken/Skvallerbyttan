@@ -4,6 +4,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-26",
   "workers_dev": false,
+  "secrets": {
+    "required": [
+      "SKVALLERBYTTAN_WEBHOOK_SECRET",
+      "SKVALLERBYTTAN_APP_ID",
+      "SKVALLERBYTTAN_APP_PRIVATE_KEY"
+    ]
+  },
   "vars": {
     "SKVALLERBYTTAN_EMAIL_TO": "anders.eriksson@denied.se",
     "SKVALLERBYTTAN_EMAIL_FROM": "noreply@denied.se"

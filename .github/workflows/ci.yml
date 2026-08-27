@@ -21,4 +21,5 @@ jobs:
         with:
           node-version: 24
       - run: npm install
+      - run: npm run validate:bindings
       - run: npm run typecheck
