@@ -28,7 +28,7 @@ jobs:
       - name: Remove one-shot workflow
         run: rm .github/workflows/fix-pem-typecheck.yml
       - name: Typecheck
-        run: npm ci && npm run typecheck
+        run: npm install && npm run typecheck
       - name: Commit fix
         run: |
           git config user.name github-actions[bot]
