@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "security-alert-ingest",
+  "name": "skvallerbyttan",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-26",
   "workers_dev": false,
@@ -28,7 +28,7 @@
       "tag": "v1",
       "new_sqlite_classes": ["SecurityAlertIssueLock"]
     }
-  ],
+  },
   "routes": [
     {
       "pattern": "security-alerts.denied.se",
