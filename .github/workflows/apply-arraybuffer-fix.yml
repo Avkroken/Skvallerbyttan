@@ -1,0 +1,34 @@
+name: Apply ArrayBuffer typecheck fix
+on:
+  push:
+    branches:
+      - fix/pem-arraybuffer-typecheck
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/pem-arraybuffer-typecheck
+      - name: Patch ArrayBuffer returns
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/index.ts')
+          s = p.read_text()
+          s = s.replace('if (!pkcs1) return keyBytes.buffer;', 'if (!pkcs1) return keyBytes.slice().buffer;')
+          s = s.replace('  ])).buffer;\n}', '  ])).slice().buffer;\n}', 1)
+          p.write_text(s)
+          PY
+      - name: Remove one-shot workflow
+        run: rm .github/workflows/apply-arraybuffer-fix.yml
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/index.ts .github/workflows/apply-arraybuffer-fix.yml
+          git commit -m "Fix PEM ArrayBuffer typecheck"
+          git push origin HEAD:fix/pem-arraybuffer-typecheck
