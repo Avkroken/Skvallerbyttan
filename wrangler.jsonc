@@ -11,7 +11,7 @@
     ]
   },
   "vars": {
-    "SKVALLERBYTTAN_APP_ID": "",
+    "SKVALLERBYTTAN_CLIENT_ID": "Iv23IiOiYdlTjaGldNVP",
     "SKVALLERBYTTAN_EMAIL_TO": "anders.eriksson@denied.se",
     "SKVALLERBYTTAN_EMAIL_FROM": "noreply@denied.se"
   },
