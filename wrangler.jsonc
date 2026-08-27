@@ -1,12 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "security-alert-ingest",
+  "name": "skvallerbyttan",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-26",
   "workers_dev": false,
   "vars": {
-    "SECURITY_ALERT_EMAIL_TO": "anders.eriksson@denied.se",
-    "SECURITY_ALERT_EMAIL_FROM": "noreply@denied.se"
+    "SKVALLERBYTTAN_EMAIL_TO": "anders.eriksson@denied.se",
+    "SKVALLERBYTTAN_EMAIL_FROM": "noreply@denied.se"
   },
   "send_email": [
     {
@@ -18,8 +18,8 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "SECURITY_ALERT_ISSUE_LOCK",
-        "class_name": "SecurityAlertIssueLock"
+        "name": "SKVALLERBYTTAN_ISSUE_LOCK",
+        "class_name": "SkvallerbyttanIssueLock"
       }
     ]
   },
@@ -27,11 +27,20 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["SecurityAlertIssueLock"]
+    },
+    {
+      "tag": "v2",
+      "renamed_classes": [
+        {
+          "from": "SecurityAlertIssueLock",
+          "to": "SkvallerbyttanIssueLock"
+        }
+      ]
     }
   ],
   "routes": [
     {
-      "pattern": "security-alerts.denied.se",
+      "pattern": "skvallerbyttan.denied.se",
       "custom_domain": true
     }
   ],

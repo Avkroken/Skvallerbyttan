@@ -1,13 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 
 interface Env {
-  SECURITY_ISSUE_WEBHOOK_SECRET: string;
-  SECURITY_ISSUE_APP_ID: string;
-  SECURITY_ISSUE_APP_PRIVATE_KEY: string;
-  SECURITY_ALERT_EMAIL_TO: string;
-  SECURITY_ALERT_EMAIL_FROM: string;
+  SKVALLERBYTTAN_WEBHOOK_SECRET: string;
+  SKVALLERBYTTAN_APP_ID: string;
+  SKVALLERBYTTAN_APP_PRIVATE_KEY: string;
+  SKVALLERBYTTAN_EMAIL_TO: string;
+  SKVALLERBYTTAN_EMAIL_FROM: string;
   EMAIL: SendEmail;
-  SECURITY_ALERT_ISSUE_LOCK: DurableObjectNamespace<SecurityAlertIssueLock>;
+  SKVALLERBYTTAN_ISSUE_LOCK: DurableObjectNamespace<SkvallerbyttanIssueLock>;
 }
 
 type IssueSpec = { marker: string; title: string; body: string };
@@ -18,7 +18,7 @@ const ORG = "Avkroken";
 const API_VERSION = "2022-11-28";
 const ISSUE_SEVERITIES = new Set(["medium", "high", "critical"]);
 const SUPPORTED_EVENTS = new Set(["code_scanning_alert", "dependabot_alert", "secret_scanning_alert"]);
-const CODEX_ACTIVE_MARKER = "codex-security-remediation:active";
+const SKVALLERBYTTAN_ACTIVE_MARKER = "skvallerbyttan-remediation:active";
 
 function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -45,7 +45,7 @@ function pemBytes(pem: string): ArrayBuffer {
 }
 
 function configured(env: Env): boolean {
-  return Boolean(env.SECURITY_ISSUE_WEBHOOK_SECRET && env.SECURITY_ISSUE_APP_ID && env.SECURITY_ISSUE_APP_PRIVATE_KEY);
+  return Boolean(env.SKVALLERBYTTAN_WEBHOOK_SECRET && env.SKVALLERBYTTAN_APP_ID && env.SKVALLERBYTTAN_APP_PRIVATE_KEY);
 }
 
 async function verifySignature(raw: string, signature: string | null, secret: string): Promise<boolean> {
@@ -58,9 +58,9 @@ async function verifySignature(raw: string, signature: string | null, secret: st
 async function appJwt(env: Env): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = base64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: env.SECURITY_ISSUE_APP_ID }));
+  const payload = base64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: env.SKVALLERBYTTAN_APP_ID }));
   const unsigned = `${header}.${payload}`;
-  const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.SECURITY_ISSUE_APP_PRIVATE_KEY), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.SKVALLERBYTTAN_APP_PRIVATE_KEY), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
   return `${unsigned}.${base64url(signature)}`;
 }
@@ -68,7 +68,7 @@ async function appJwt(env: Env): Promise<string> {
 async function installationToken(env: Env): Promise<string> {
   const jwt = await appJwt(env);
   const installationResponse = await fetch(`https://api.github.com/orgs/${encodeURIComponent(ORG)}/installation`, {
-    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-security-alerts" },
+    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
   });
   if (!installationResponse.ok) throw new Error(`GitHub installation lookup ${installationResponse.status}: ${(await installationResponse.text()).slice(0, 500)}`);
   const installation = await installationResponse.json<{ id?: number }>();
@@ -76,7 +76,7 @@ async function installationToken(env: Env): Promise<string> {
 
   const response = await fetch(`https://api.github.com/app/installations/${installation.id}/access_tokens`, {
     method: "POST",
-    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-security-alerts" },
+    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
   });
   if (!response.ok) throw new Error(`GitHub installation token ${response.status}: ${(await response.text()).slice(0, 500)}`);
   const data = await response.json<{ token?: string }>();
@@ -87,7 +87,7 @@ async function installationToken(env: Env): Promise<string> {
 async function github(token: string, path: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(`https://api.github.com${path}`, {
     ...init,
-    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-security-alerts", ...(init.headers ?? {}) },
+    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan", ...(init.headers ?? {}) },
   });
   if (!response.ok) throw new Error(`GitHub API ${response.status}: ${(await response.text()).slice(0, 500)}`);
   return response;
@@ -122,7 +122,7 @@ async function createIssueUnlocked(token: string, repo: string, issue: IssueSpec
   return "created";
 }
 
-export class SecurityAlertIssueLock extends DurableObject<Env> {
+export class SkvallerbyttanIssueLock extends DurableObject<Env> {
   private tail: Promise<void> = Promise.resolve();
 
   async createIssue(token: string, repo: string, issue: IssueSpec): Promise<"created" | "exists"> {
@@ -139,7 +139,7 @@ export class SecurityAlertIssueLock extends DurableObject<Env> {
 }
 
 async function createIssue(env: Env, token: string, repo: string, issue: IssueSpec): Promise<"created" | "exists"> {
-  const lock = env.SECURITY_ALERT_ISSUE_LOCK.getByName(`${repo}:${issue.marker}`);
+  const lock = env.SKVALLERBYTTAN_ISSUE_LOCK.getByName(`${repo}:${issue.marker}`);
   return lock.createIssue(token, repo, issue);
 }
 
@@ -148,8 +148,8 @@ function repoFromApiUrl(repositoryUrl: string): string {
   return repositoryUrl.startsWith(prefix) ? repositoryUrl.slice(prefix.length) : "";
 }
 
-function securityMarker(body: string): string | null {
-  return body.match(/security-alert:(code-scanning|dependabot|secret-scanning):\d+/)?.[0] ?? null;
+function skvallerbyttanMarker(body: string): string | null {
+  return body.match(/skvallerbyttan-alert:(code-scanning|dependabot|secret-scanning):\d+/)?.[0] ?? null;
 }
 
 function codexPriority(title: string): number {
@@ -164,26 +164,26 @@ async function issueComments(token: string, repo: string, issueNumber: number): 
 }
 
 async function repoHasActiveCodexRemediation(token: string, repo: string): Promise<boolean> {
-  const query = `repo:${repo} is:issue is:open in:comments \"${CODEX_ACTIVE_MARKER}\"`;
+  const query = `repo:${repo} is:issue is:open in:comments \"${SKVALLERBYTTAN_ACTIVE_MARKER}\"`;
   const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ total_count?: number }>();
   return (data.total_count ?? 0) > 0;
 }
 
 async function requestCodexRemediation(token: string, repo: string, issueNumber: number, marker: string): Promise<"dispatched" | "exists" | "busy"> {
-  const requestMarker = `codex-security-remediation:${marker}`;
+  const requestMarker = `skvallerbyttan-remediation:${marker}`;
   const comments = await issueComments(token, repo, issueNumber);
   if (comments.some((comment) => (comment.body ?? "").includes(requestMarker))) return "exists";
   if (await repoHasActiveCodexRemediation(token, repo)) return "busy";
 
   const body = [
-    `<!-- ${CODEX_ACTIVE_MARKER} -->`,
+    `<!-- ${SKVALLERBYTTAN_ACTIVE_MARKER} -->`,
     `<!-- ${requestMarker} -->`,
     "@codex implement this security issue autonomously.",
     "",
     "Requirements:",
     "- Verify the finding and make the smallest safe fix without changing the security alert state.",
     "- Follow the repository AGENTS.md and use an available work/feature, work/fix, or work/chore pool branch; never push directly to main.",
-    `- Open a squash PR that includes \`Fixes #${issueNumber}\` and \`<!-- codex-security-remediation -->\` in its body.`,
+    `- Open a squash PR that includes \`Fixes #${issueNumber}\` and \`<!-- skvallerbyttan-remediation -->\` in its body.`,
     "- Immediately enable auto-merge for the PR when it is opened. Do not wait for checks before enabling it; branch protection, required checks, review resolution, and the merge queue remain authoritative.",
     "- Treat every human and trusted automated review comment as required work. Re-read all review summaries and unresolved inline threads after each review or push.",
     "- For each finding: investigate it, implement and test every valid fix, or reply with concrete evidence when it is a false positive or does not apply. Never dismiss a finding silently.",
@@ -200,7 +200,7 @@ async function requestCodexRemediation(token: string, repo: string, issueNumber:
 }
 
 async function runCodexQueue(token: string): Promise<void> {
-  const query = `org:${ORG} is:issue is:open in:body \"security-alert:\"`;
+  const query = `org:${ORG} is:issue is:open in:body \"skvallerbyttan-alert:\"`;
   const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=asc&per_page=100`)).json<{ items?: SecurityIssue[] }>();
   const issues = (data.items ?? []).sort((a, b) => codexPriority(a.title ?? "") - codexPriority(b.title ?? ""));
   const handledRepos = new Set<string>();
@@ -208,7 +208,7 @@ async function runCodexQueue(token: string): Promise<void> {
 
   for (const issue of issues) {
     const repo = repoFromApiUrl(issue.repository_url);
-    const marker = securityMarker(issue.body ?? "");
+    const marker = skvallerbyttanMarker(issue.body ?? "");
     if (!validOrgRepo(repo) || !marker || handledRepos.has(repo)) continue;
     try {
       const result = await requestCodexRemediation(token, repo, issue.number, marker);
@@ -216,11 +216,11 @@ async function runCodexQueue(token: string): Promise<void> {
       handledRepos.add(repo);
     } catch (error) {
       stats.errors += 1;
-      console.error("security Codex dispatch failed", { repo, issueNumber: issue.number, error: error instanceof Error ? error.message : String(error) });
+      console.error("skvallerbyttan Codex dispatch failed", { repo, issueNumber: issue.number, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
-  console.log("security Codex queue complete", stats);
+  console.log("skvallerbyttan Codex queue complete", stats);
 }
 
 async function isMalware(token: string, repo: string, alertNumber: number): Promise<boolean> {
@@ -234,7 +234,7 @@ function codeScanningIssue(alert: any): IssueSpec | null {
   if (!ISSUE_SEVERITIES.has(severity)) return null;
   const rule = alert.rule?.name ?? alert.rule?.id ?? "Code scanning alert";
   return {
-    marker: `security-alert:code-scanning:${alert.number}`,
+    marker: `skvallerbyttan-alert:code-scanning:${alert.number}`,
     title: `[Security][Code scanning][${severity.toUpperCase()}] ${rule}`,
     body: `Automatiskt skapat från ett öppet GitHub Code Scanning-alert.\n\n- **Severity:** ${severity.toUpperCase()}\n- **Rule:** ${rule}\n- **Alert:** ${alert.html_url ?? ""}`,
   };
@@ -249,7 +249,7 @@ async function dependabotIssue(token: string, repo: string, alert: any): Promise
   const pkg = alert.dependency?.package?.name ?? "unknown package";
   const summary = alert.security_advisory?.summary ?? (malware ? "Malicious dependency detected" : "Dependabot alert");
   return {
-    marker: `security-alert:dependabot:${alert.number}`,
+    marker: `skvallerbyttan-alert:dependabot:${alert.number}`,
     title: `[Security][Dependabot][${level}] ${pkg}: ${summary}`,
     body: `Automatiskt skapat från ett öppet GitHub Dependabot-alert. Malware inkluderas alltid; övriga alerts kräver Medium eller högre.\n\n- **Severity/class:** ${level}\n- **Package:** ${pkg}\n- **Summary:** ${summary}\n- **Alert:** ${alert.html_url ?? ""}`,
   };
@@ -259,7 +259,7 @@ function secretScanningIssue(alert: any): IssueSpec | null {
   if (alert.state !== "open" || !Number.isSafeInteger(alert.number)) return null;
   const secretType = alert.secret_type_display_name ?? alert.secret_type ?? "Secret detected";
   return {
-    marker: `security-alert:secret-scanning:${alert.number}`,
+    marker: `skvallerbyttan-alert:secret-scanning:${alert.number}`,
     title: `[Security][Secret scanning] ${secretType}`,
     body: `Automatiskt skapat från ett öppet GitHub Secret Scanning-alert. Själva hemligheten inkluderas avsiktligt inte i issuet.\n\n- **Type:** ${secretType}\n- **Validity:** ${alert.validity ?? "unknown"}\n- **Alert:** ${alert.html_url ?? ""}`,
   };
@@ -309,13 +309,13 @@ async function sendSecretScanningEmail(
 <p>The detected secret is intentionally not included in this email.</p>`;
 
   await env.EMAIL.send({
-    to: env.SECURITY_ALERT_EMAIL_TO,
-    from: { email: env.SECURITY_ALERT_EMAIL_FROM, name: "Avkroken Security" },
+    to: env.SKVALLERBYTTAN_EMAIL_TO,
+    from: { email: env.SKVALLERBYTTAN_EMAIL_FROM, name: "Avkroken Skvallerbyttan" },
     subject,
     text,
     html,
   });
-  console.log("security secret alert email sent", { delivery, action, repo, alertNumber });
+  console.log("skvallerbyttan secret alert email sent", { delivery, action, repo, alertNumber });
 }
 
 function repoFromAlert(alert: any): string {
@@ -348,7 +348,7 @@ async function backfillType(
       stats[result] += 1;
     } catch (error) {
       stats.errors += 1;
-      console.error("security backfill alert failed", { type, repo, alertNumber: alert.number ?? null, error: error instanceof Error ? error.message : String(error) });
+      console.error("skvallerbyttan backfill alert failed", { type, repo, alertNumber: alert.number ?? null, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -356,7 +356,7 @@ async function backfillType(
 }
 
 async function runBackfill(env: Env): Promise<void> {
-  if (!configured(env)) throw new Error("Security alerts Worker is not configured");
+  if (!configured(env)) throw new Error("Skvallerbyttan Worker is not configured");
   const token = await installationToken(env);
   const code = await backfillType(
     env,
@@ -379,22 +379,22 @@ async function runBackfill(env: Env): Promise<void> {
     `/orgs/${encodeURIComponent(ORG)}/secret-scanning/alerts?state=open&per_page=100`,
     async (_repo, alert) => secretScanningIssue(alert),
   );
-  console.log("security backfill complete", { code, dependabot, secret });
+  console.log("skvallerbyttan backfill complete", { code, dependabot, secret });
   await runCodexQueue(token);
 }
 
 async function runQueueOnly(env: Env): Promise<void> {
-  if (!configured(env)) throw new Error("Security alerts Worker is not configured");
+  if (!configured(env)) throw new Error("Skvallerbyttan Worker is not configured");
   await runCodexQueue(await installationToken(env));
 }
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const path = new URL(req.url).pathname;
-    if (req.method === "GET" && (path === "/" || path === "/health")) return Response.json({ ok: true, service: "security-alerts" });
+    if (req.method === "GET" && (path === "/" || path === "/health")) return Response.json({ ok: true, service: "skvallerbyttan" });
     if (req.method !== "POST" || path !== "/webhook") return new Response("Not found", { status: 404 });
     if (!configured(env)) {
-      console.error("security webhook not configured");
+      console.error("skvallerbyttan webhook not configured");
       return new Response("Not configured", { status: 503 });
     }
 
@@ -402,14 +402,14 @@ export default {
     const delivery = req.headers.get("x-github-delivery") ?? "";
     const event = req.headers.get("x-github-event") ?? "";
 
-    if (!(await verifySignature(raw, req.headers.get("x-hub-signature-256"), env.SECURITY_ISSUE_WEBHOOK_SECRET))) {
-      console.warn("security webhook bad signature", { delivery, event });
+    if (!(await verifySignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
+      console.warn("skvallerbyttan webhook bad signature", { delivery, event });
       return new Response("Bad signature", { status: 401 });
     }
 
     if (event === "ping") {
-      console.log("security webhook ping", { delivery });
-      ctx.waitUntil(runBackfill(env).catch((error) => console.error("security ping backfill failed", error instanceof Error ? error.message : String(error))));
+      console.log("skvallerbyttan webhook ping", { delivery });
+      ctx.waitUntil(runBackfill(env).catch((error) => console.error("skvallerbyttan ping backfill failed", error instanceof Error ? error.message : String(error))));
       return new Response("pong\n");
     }
 
@@ -417,16 +417,16 @@ export default {
     try {
       payload = JSON.parse(raw);
     } catch {
-      console.warn("security webhook bad json", { delivery, event });
+      console.warn("skvallerbyttan webhook bad json", { delivery, event });
       return new Response("Bad JSON", { status: 400 });
     }
 
     const repo = String(payload.repository?.full_name ?? "");
     const action = String(payload.action ?? "");
-    console.log("security webhook received", { delivery, event, action, repo });
+    console.log("skvallerbyttan webhook received", { delivery, event, action, repo });
 
     if (!SUPPORTED_EVENTS.has(event)) {
-      console.log("security webhook ignored unsupported event", { delivery, event, action, repo });
+      console.log("skvallerbyttan webhook ignored unsupported event", { delivery, event, action, repo });
       return new Response("ignored\n", { status: 202 });
     }
     if (!validOrgRepo(repo)) return new Response("Wrong organization", { status: 403 });
@@ -434,7 +434,7 @@ export default {
     const alert = payload.alert ?? {};
     if (event === "secret_scanning_alert" && (action === "created" || action === "reopened")) {
       ctx.waitUntil(sendSecretScanningEmail(env, repo, alert, action, delivery).catch((error) => {
-        console.error("security secret alert email failed", {
+        console.error("skvallerbyttan secret alert email failed", {
           delivery,
           action,
           repo,
@@ -453,22 +453,22 @@ export default {
           : (action === "created" || action === "reopened") ? secretScanningIssue({ ...alert, state: "open" }) : null;
 
       if (!issue) {
-        console.log("security webhook ignored alert", { delivery, event, action, repo, alertNumber: alert.number ?? null });
+        console.log("skvallerbyttan webhook ignored alert", { delivery, event, action, repo, alertNumber: alert.number ?? null });
         return new Response("ignored\n", { status: 202 });
       }
 
       const result = await createIssue(env, token, repo, issue);
-      console.log("security webhook issue result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result });
-      ctx.waitUntil(runCodexQueue(token).catch((error) => console.error("security webhook Codex queue failed", error instanceof Error ? error.message : String(error))));
+      console.log("skvallerbyttan webhook issue result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result });
+      ctx.waitUntil(runCodexQueue(token).catch((error) => console.error("skvallerbyttan webhook Codex queue failed", error instanceof Error ? error.message : String(error))));
       return new Response(`${result}\n`, { status: result === "created" ? 201 : 200 });
     } catch (error) {
-      console.error("security webhook failed", { delivery, event, action, repo, error: error instanceof Error ? error.message : String(error) });
+      console.error("skvallerbyttan webhook failed", { delivery, event, action, repo, error: error instanceof Error ? error.message : String(error) });
       return new Response("Upstream error", { status: 502 });
     }
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const task = event.cron === "*/5 * * * *" ? runQueueOnly(env) : runBackfill(env);
-    ctx.waitUntil(task.catch((error) => console.error("security scheduled automation failed", { cron: event.cron, error: error instanceof Error ? error.message : String(error) })));
+    ctx.waitUntil(task.catch((error) => console.error("skvallerbyttan scheduled automation failed", { cron: event.cron, error: error instanceof Error ? error.message : String(error) })));
   },
 } satisfies ExportedHandler<Env>;
