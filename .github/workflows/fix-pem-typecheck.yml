@@ -1,0 +1,38 @@
+name: Fix PEM typecheck
+
+on:
+  push:
+    branches:
+      - work/github-app-pem
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: work/github-app-pem
+      - name: Fix ArrayBuffer return types
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/index.ts')
+          source = path.read_text()
+          source = source.replace('if (!pkcs1) return keyBytes.buffer;', 'if (!pkcs1) return keyBytes.slice().buffer;')
+          source = source.replace('  ])).buffer;\n}', '  ])).slice().buffer;\n}', 1)
+          path.write_text(source)
+      - name: Remove one-shot workflow
+        run: rm .github/workflows/fix-pem-typecheck.yml
+      - name: Typecheck
+        run: npm ci && npm run typecheck
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/index.ts .github/workflows/fix-pem-typecheck.yml
+          git commit -m "Fix PEM ArrayBuffer typing"
+          git push origin HEAD:work/github-app-pem
