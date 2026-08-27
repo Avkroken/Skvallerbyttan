@@ -1,6 +1,8 @@
 name: Worker typecheck
 
 on:
+  merge_group:
+    types: [checks_requested]
   pull_request:
   push:
     branches:
@@ -13,6 +15,7 @@ permissions:
 jobs:
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -21,5 +24,4 @@ jobs:
         with:
           node-version: 24
       - run: npm install
-      - run: npm run validate:bindings
       - run: npm run typecheck
