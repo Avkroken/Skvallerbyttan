@@ -7,11 +7,11 @@
   "secrets": {
     "required": [
       "SKVALLERBYTTAN_WEBHOOK_SECRET",
-      "SKVALLERBYTTAN_APP_ID",
       "SKVALLERBYTTAN_APP_PRIVATE_KEY"
     ]
   },
   "vars": {
+    "SKVALLERBYTTAN_CLIENT_ID": "Iv23IiOiYdlTjaGldNVP",
     "SKVALLERBYTTAN_EMAIL_TO": "anders.eriksson@denied.se",
     "SKVALLERBYTTAN_EMAIL_FROM": "noreply@denied.se"
   },

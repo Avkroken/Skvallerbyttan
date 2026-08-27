@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 interface Env {
   SKVALLERBYTTAN_WEBHOOK_SECRET: string;
-  SKVALLERBYTTAN_APP_ID: string;
+  SKVALLERBYTTAN_CLIENT_ID: string;
   SKVALLERBYTTAN_APP_PRIVATE_KEY: string;
   SKVALLERBYTTAN_EMAIL_TO: string;
   SKVALLERBYTTAN_EMAIL_FROM: string;
@@ -45,7 +45,7 @@ function pemBytes(pem: string): ArrayBuffer {
 }
 
 function configured(env: Env): boolean {
-  return Boolean(env.SKVALLERBYTTAN_WEBHOOK_SECRET && env.SKVALLERBYTTAN_APP_ID && env.SKVALLERBYTTAN_APP_PRIVATE_KEY);
+  return Boolean(env.SKVALLERBYTTAN_WEBHOOK_SECRET && env.SKVALLERBYTTAN_CLIENT_ID && env.SKVALLERBYTTAN_APP_PRIVATE_KEY);
 }
 
 async function verifySignature(raw: string, signature: string | null, secret: string): Promise<boolean> {
@@ -58,7 +58,7 @@ async function verifySignature(raw: string, signature: string | null, secret: st
 async function appJwt(env: Env): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = base64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: env.SKVALLERBYTTAN_APP_ID }));
+  const payload = base64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: env.SKVALLERBYTTAN_CLIENT_ID }));
   const unsigned = `${header}.${payload}`;
   const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.SKVALLERBYTTAN_APP_PRIVATE_KEY), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
