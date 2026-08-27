@@ -1,0 +1,57 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "security-alert-ingest",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-26",
+  "workers_dev": false,
+  "vars": {
+    "SECURITY_ALERT_EMAIL_TO": "anders.eriksson@denied.se",
+    "SECURITY_ALERT_EMAIL_FROM": "noreply@denied.se"
+  },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": ["anders.eriksson@denied.se"],
+      "allowed_sender_addresses": ["noreply@denied.se"]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SECURITY_ALERT_ISSUE_LOCK",
+        "class_name": "SecurityAlertIssueLock"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SecurityAlertIssueLock"]
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "security-alerts.denied.se",
+      "custom_domain": true
+    }
+  ],
+  "triggers": {
+    "crons": ["17 * * * *", "*/5 * * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "redact_query_string": false,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
+}
