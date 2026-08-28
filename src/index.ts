@@ -93,8 +93,25 @@ async function appJwt(env: Env): Promise<string> {
   return `${unsigned}.${base64url(signature)}`;
 }
 
+async function verifyGitHubAppIdentity(jwt: string, expectedClientId: string): Promise<void> {
+  const response = await fetch("https://api.github.com/app", {
+    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
+  });
+  if (!response.ok) throw new Error(`GitHub app identity ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  const app = await response.json<{ id?: number; slug?: string; client_id?: string }>();
+  if (app.client_id && app.client_id !== expectedClientId) {
+    throw new Error(`GitHub app identity client id mismatch: expected ${expectedClientId}, got ${app.client_id}`);
+  }
+  console.log("skvallerbyttan GitHub App authenticated", {
+    slug: app.slug ?? null,
+    appId: app.id ?? null,
+    clientId: app.client_id ?? null,
+  });
+}
+
 async function installationToken(env: Env): Promise<string> {
   const jwt = await appJwt(env);
+  await verifyGitHubAppIdentity(jwt, env.SKVALLERBYTTAN_CLIENT_ID);
   const installationResponse = await fetch(`https://api.github.com/orgs/${encodeURIComponent(ORG)}/installation`, {
     headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
   });
