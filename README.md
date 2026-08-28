@@ -17,6 +17,8 @@ Issues are deduplicated by alert type and alert number inside the affected repos
 
 The Worker reconciles all currently open security alerts across every repository in `Avkroken` once per hour at minute 17. It uses GitHub's organization-level Code Scanning, Dependabot, and Secret Scanning alert endpoints, then creates each eligible Issue in the repository that owns the alert.
 
+The same run also reconciles Issue state against each alert's repository-level API state. Code Scanning and Dependabot state `fixed`, and Secret Scanning state `resolved`, close an open Issue. An alert that is still `open` reopens a prematurely closed Issue. Dismissed alerts are not treated as verified fixes. Fix/resolution webhook deliveries apply the same close behavior immediately, without waiting for the hourly schedule.
+
 The backfill uses the same Issue markers as webhook delivery, so it is safe to run repeatedly. Alerts that already have their corresponding Issue are skipped.
 
 A valid GitHub organization-webhook `ping` also starts the same backfill asynchronously after the signed ping has been verified. This provides a safe way to request an immediate reconciliation from GitHub's webhook delivery UI without exposing a public backfill endpoint.

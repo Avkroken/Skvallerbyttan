@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { alertApiPath, alertIsRemediated, alertReference, reconciledIssueState, type AlertReference } from "./reconciliation";
 
 interface Env {
   SKVALLERBYTTAN_WEBHOOK_SECRET: string;
@@ -12,7 +13,7 @@ interface Env {
 
 type IssueSpec = { marker: string; title: string; body: string };
 type BackfillStats = { scanned: number; eligible: number; created: number; exists: number; errors: number };
-type SecurityIssue = { body?: string; number: number; repository_url: string; title?: string };
+type SecurityIssue = { body?: string; number: number; repository_url: string; state?: string; title?: string };
 
 const ORG = "Avkroken";
 const API_VERSION = "2022-11-28";
@@ -195,6 +196,86 @@ function repoFromApiUrl(repositoryUrl: string): string {
 
 function skvallerbyttanMarker(body: string): string | null {
   return body.match(/skvallerbyttan-alert:(code-scanning|dependabot|secret-scanning):\d+/)?.[0] ?? null;
+}
+
+async function closeRemediatedIssue(token: string, repo: string, issueNumber: number, alert: AlertReference, state: string): Promise<void> {
+  const marker = `skvallerbyttan-reconciled:${alert.type}:${alert.number}:${state}`;
+  await github(token, `/repos/${repo}/issues/${issueNumber}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      body: `<!-- ${marker} -->\nSkvallerbyttan verifierade via GitHub API att säkerhetsalerten nu har state \`${state}\` och stänger därför issuet som slutfört.`,
+    }),
+  });
+  await github(token, `/repos/${repo}/issues/${issueNumber}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ state: "closed", state_reason: "completed" }),
+  });
+}
+
+async function reopenUnremediatedIssue(token: string, repo: string, issueNumber: number, alert: AlertReference): Promise<void> {
+  await github(token, `/repos/${repo}/issues/${issueNumber}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      body: `<!-- skvallerbyttan-reopened:${alert.type}:${alert.number} -->\nSkvallerbyttan verifierade via GitHub API att säkerhetsalerten fortfarande har state \`open\` och återöppnar därför issuet.`,
+    }),
+  });
+  await github(token, `/repos/${repo}/issues/${issueNumber}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ state: "open" }),
+  });
+}
+
+async function reconcileIssue(token: string, issue: SecurityIssue): Promise<"closed" | "reopened" | "synced" | "ignored"> {
+  const repo = repoFromApiUrl(issue.repository_url);
+  const alert = alertReference(issue.body ?? "");
+  if (!validOrgRepo(repo) || !alert) return "ignored";
+  const data = await (await github(token, alertApiPath(repo, alert))).json<{ state?: string }>();
+  const state = String(data.state ?? "").toLowerCase();
+  const desiredState = reconciledIssueState(alert, state);
+  if (desiredState === "closed") {
+    if (issue.state === "closed") return "synced";
+    await closeRemediatedIssue(token, repo, issue.number, alert, state);
+    return "closed";
+  }
+  if (desiredState === "open" && issue.state === "closed") {
+    await reopenUnremediatedIssue(token, repo, issue.number, alert);
+    return "reopened";
+  }
+  return "synced";
+}
+
+async function findSecurityIssues(token: string): Promise<SecurityIssue[]> {
+  const issues: SecurityIssue[] = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const query = `org:${ORG} is:issue in:body "skvallerbyttan-alert:"`;
+    const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=asc&per_page=100&page=${page}`)).json<{ items?: SecurityIssue[] }>();
+    const batch = data.items ?? [];
+    issues.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return issues;
+}
+
+async function runIssueReconciliation(token: string): Promise<void> {
+  const issues = await findSecurityIssues(token);
+  const stats = { candidates: issues.length, closed: 0, reopened: 0, synced: 0, ignored: 0, errors: 0 };
+  for (const issue of issues) {
+    try {
+      stats[await reconcileIssue(token, issue)] += 1;
+    } catch (error) {
+      stats.errors += 1;
+      console.error("skvallerbyttan issue reconciliation failed", {
+        issueNumber: issue.number,
+        repo: repoFromApiUrl(issue.repository_url),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  console.log("skvallerbyttan issue reconciliation complete", stats);
 }
 
 function codexPriority(title: string): number {
@@ -425,6 +506,7 @@ async function runBackfill(env: Env): Promise<void> {
     async (_repo, alert) => secretScanningIssue(alert),
   );
   console.log("skvallerbyttan backfill complete", { code, dependabot, secret });
+  await runIssueReconciliation(token);
   await runCodexQueue(token);
 }
 
@@ -491,6 +573,16 @@ export default {
 
     try {
       const token = await installationToken(env);
+      const webhookAlert = alertReference(`skvallerbyttan-alert:${event.replaceAll("_alert", "").replaceAll("_", "-")}:${alert.number}`);
+      const webhookState = String(alert.state ?? (event === "secret_scanning_alert" && action === "resolved" ? "resolved" : "")).toLowerCase();
+      if (webhookAlert && alertIsRemediated(webhookAlert, webhookState)) {
+        const query = `repo:${repo} is:issue is:open in:body "skvallerbyttan-alert:${webhookAlert.type}:${webhookAlert.number}"`;
+        const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ items?: SecurityIssue[] }>();
+        const issueToClose = data.items?.[0];
+        if (issueToClose) await closeRemediatedIssue(token, repo, issueToClose.number, webhookAlert, webhookState);
+        console.log("skvallerbyttan webhook reconciliation result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result: issueToClose ? "closed" : "missing" });
+        return new Response(`${issueToClose ? "closed" : "missing"}\n`);
+      }
       const issue = event === "code_scanning_alert"
         ? codeScanningIssue(alert)
         : event === "dependabot_alert"
