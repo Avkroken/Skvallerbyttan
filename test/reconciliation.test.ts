@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { alertApiPath, alertIsRemediated, alertReference, needsAssignee, reconciledIssueState } from "../src/reconciliation.ts";
+import { alertApiPath, alertIsRemediated, alertReference, assignmentAllowed, needsAssignee, reconciledIssueState } from "../src/reconciliation.ts";
 
 test("parses every supported issue marker and rejects invalid alert numbers", () => {
   assert.deepEqual(alertReference("<!-- skvallerbyttan-alert:code-scanning:45 -->"), { type: "code-scanning", number: 45 });
@@ -37,4 +37,10 @@ test("detects a missing assignee case-insensitively", () => {
   assert.equal(needsAssignee([], "blixten85"), true);
   assert.equal(needsAssignee([{ login: "Blixten85" }], "blixten85"), false);
   assert.equal(needsAssignee([{ login: "someone-else" }], "blixten85"), true);
+});
+
+test("honors the temporary repository assignment pause case-insensitively", () => {
+  const paused = new Set(["avkroken/produkter"]);
+  assert.equal(assignmentAllowed("Avkroken/produkter", paused), false);
+  assert.equal(assignmentAllowed("Avkroken/bastion", paused), true);
 });

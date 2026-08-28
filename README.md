@@ -11,7 +11,7 @@ This README describes the intended behavior and setup of the current program. It
 - Dependabot classification is malware, regardless of severity;
 - a Secret Scanning alert is created or reopened. The detected secret itself is never copied into the Issue.
 
-Issues are deduplicated by alert type and alert number inside the affected repository and assigned to `blixten85` so they surface in the GitHub mobile inbox. The hourly reconciliation also adds that assignee to existing open security Issues when it is missing. No personal access token is used. The organization webhook is only the event source. The Worker authenticates separately as the Gamnacken GitHub App, looks up Gamnacken's installation on `Avkroken` with an app JWT, exchanges that installation ID for a short-lived installation access token, and uses that token to create Issues and read alert metadata.
+Issues are deduplicated by alert type and alert number inside the affected repository and assigned to `blixten85` so they surface in the GitHub mobile inbox. The hourly reconciliation also adds that assignee to existing open security Issues when it is missing. Assignment is temporarily paused for `Avkroken/produkter` while that repository is under active reconstruction; alert ingestion, deduplication, and state reconciliation continue unchanged. No personal access token is used. The organization webhook is only the event source. The Worker authenticates separately as the Gamnacken GitHub App, looks up Gamnacken's installation on `Avkroken` with an app JWT, exchanges that installation ID for a short-lived installation access token, and uses that token to create Issues and read alert metadata.
 
 ## Organization-wide backfill
 
