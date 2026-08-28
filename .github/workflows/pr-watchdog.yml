@@ -43,7 +43,7 @@ jobs:
                 try{branch=await github.rest.repos.getBranch({owner,repo,branch:slot});}catch(error){if(error.status===404)continue;throw error;}
                 const headSha=branch.data.commit.sha;
                 const comparison=await github.rest.repos.compareCommitsWithBasehead({owner,repo,basehead:`${base}...${slot}`});
-                if(comparison.data.ahead_by===0)continue;
+                if(comparison.data.ahead_by===0 || comparison.data.behind_by>0)continue;
                 const pulls=await github.paginate(github.rest.pulls.list,{owner,repo,state:'open',head:`${owner}:${slot}`,base,per_page:100});
                 let pr=pulls[0];
                 if(pr){if(!(pr.body||'').includes('Den här PR:n öppnades automatiskt av `PR watchdog`.'))continue;}
