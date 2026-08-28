@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { alertApiPath, alertIsRemediated, alertReference, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
+import { alertApiPath, alertIsRemediated, alertReference, assignmentAllowed, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
 
 interface Env {
   SKVALLERBYTTAN_WEBHOOK_SECRET: string;
@@ -21,6 +21,7 @@ const ISSUE_SEVERITIES = new Set(["medium", "high", "critical"]);
 const SUPPORTED_EVENTS = new Set(["code_scanning_alert", "dependabot_alert", "secret_scanning_alert"]);
 const SKVALLERBYTTAN_ACTIVE_MARKER = "skvallerbyttan-remediation:active";
 const SECURITY_ISSUE_ASSIGNEE = "blixten85";
+const ASSIGNMENT_PAUSED_REPOS = new Set(["avkroken/produkter"]);
 
 function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -161,13 +162,14 @@ async function issueExists(token: string, repo: string, marker: string): Promise
 
 async function createIssueUnlocked(token: string, repo: string, issue: IssueSpec): Promise<"created" | "exists"> {
   if (await issueExists(token, repo, issue.marker)) return "exists";
+  const assignees = assignmentAllowed(repo, ASSIGNMENT_PAUSED_REPOS) ? [SECURITY_ISSUE_ASSIGNEE] : [];
   await github(token, `/repos/${repo}/issues`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       title: issue.title,
       body: `<!-- ${issue.marker} -->\n${issue.body}`,
-      assignees: [SECURITY_ISSUE_ASSIGNEE],
+      assignees,
     }),
   });
   return "created";
@@ -235,7 +237,7 @@ async function reopenUnremediatedIssue(token: string, repo: string, issueNumber:
 }
 
 async function ensureSecurityIssueAssignee(token: string, repo: string, issue: SecurityIssue): Promise<boolean> {
-  if (issue.state !== "open" || !needsAssignee(issue.assignees ?? [], SECURITY_ISSUE_ASSIGNEE)) return false;
+  if (!assignmentAllowed(repo, ASSIGNMENT_PAUSED_REPOS) || issue.state !== "open" || !needsAssignee(issue.assignees ?? [], SECURITY_ISSUE_ASSIGNEE)) return false;
   await github(token, `/repos/${repo}/issues/${issue.number}/assignees`, {
     method: "POST",
     headers: { "content-type": "application/json" },

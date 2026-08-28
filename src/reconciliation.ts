@@ -24,3 +24,7 @@ export function reconciledIssueState(alert: AlertReference, alertState: string):
 export function needsAssignee(assignees: Array<{ login?: string }>, expectedLogin: string): boolean {
   return !assignees.some(({ login }) => login?.toLowerCase() === expectedLogin.toLowerCase());
 }
+
+export function assignmentAllowed(repo: string, pausedRepos: ReadonlySet<string>): boolean {
+  return !pausedRepos.has(repo.toLowerCase());
+}
