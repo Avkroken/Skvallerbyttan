@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { alertApiPath, alertIsRemediated, alertReference, reconciledIssueState } from "../src/reconciliation.ts";
+import { alertApiPath, alertIsRemediated, alertReference, needsAssignee, reconciledIssueState } from "../src/reconciliation.ts";
 
 test("parses every supported issue marker and rejects invalid alert numbers", () => {
   assert.deepEqual(alertReference("<!-- skvallerbyttan-alert:code-scanning:45 -->"), { type: "code-scanning", number: 45 });
@@ -31,4 +31,10 @@ test("only fixed or resolved states count as remediation", () => {
   assert.equal(reconciledIssueState(code, "open"), "open");
   assert.equal(reconciledIssueState(code, "dismissed"), null);
   assert.equal(reconciledIssueState(secret, "resolved"), "closed");
+});
+
+test("detects a missing assignee case-insensitively", () => {
+  assert.equal(needsAssignee([], "blixten85"), true);
+  assert.equal(needsAssignee([{ login: "Blixten85" }], "blixten85"), false);
+  assert.equal(needsAssignee([{ login: "someone-else" }], "blixten85"), true);
 });

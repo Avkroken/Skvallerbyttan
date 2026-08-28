@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { alertApiPath, alertIsRemediated, alertReference, reconciledIssueState, type AlertReference } from "./reconciliation";
+import { alertApiPath, alertIsRemediated, alertReference, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
 
 interface Env {
   SKVALLERBYTTAN_WEBHOOK_SECRET: string;
@@ -13,13 +13,14 @@ interface Env {
 
 type IssueSpec = { marker: string; title: string; body: string };
 type BackfillStats = { scanned: number; eligible: number; created: number; exists: number; errors: number };
-type SecurityIssue = { body?: string; number: number; repository_url: string; state?: string; title?: string };
+type SecurityIssue = { assignees?: Array<{ login?: string }>; body?: string; number: number; repository_url: string; state?: string; title?: string };
 
 const ORG = "Avkroken";
 const API_VERSION = "2022-11-28";
 const ISSUE_SEVERITIES = new Set(["medium", "high", "critical"]);
 const SUPPORTED_EVENTS = new Set(["code_scanning_alert", "dependabot_alert", "secret_scanning_alert"]);
 const SKVALLERBYTTAN_ACTIVE_MARKER = "skvallerbyttan-remediation:active";
+const SECURITY_ISSUE_ASSIGNEE = "blixten85";
 
 function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -163,7 +164,11 @@ async function createIssueUnlocked(token: string, repo: string, issue: IssueSpec
   await github(token, `/repos/${repo}/issues`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: issue.title, body: `<!-- ${issue.marker} -->\n${issue.body}` }),
+    body: JSON.stringify({
+      title: issue.title,
+      body: `<!-- ${issue.marker} -->\n${issue.body}`,
+      assignees: [SECURITY_ISSUE_ASSIGNEE],
+    }),
   });
   return "created";
 }
@@ -229,6 +234,16 @@ async function reopenUnremediatedIssue(token: string, repo: string, issueNumber:
   });
 }
 
+async function ensureSecurityIssueAssignee(token: string, repo: string, issue: SecurityIssue): Promise<boolean> {
+  if (issue.state !== "open" || !needsAssignee(issue.assignees ?? [], SECURITY_ISSUE_ASSIGNEE)) return false;
+  await github(token, `/repos/${repo}/issues/${issue.number}/assignees`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ assignees: [SECURITY_ISSUE_ASSIGNEE] }),
+  });
+  return true;
+}
+
 async function reconcileIssue(token: string, issue: SecurityIssue): Promise<"closed" | "reopened" | "synced" | "ignored"> {
   const repo = repoFromApiUrl(issue.repository_url);
   const alert = alertReference(issue.body ?? "");
@@ -262,10 +277,14 @@ async function findSecurityIssues(token: string): Promise<SecurityIssue[]> {
 
 async function runIssueReconciliation(token: string): Promise<void> {
   const issues = await findSecurityIssues(token);
-  const stats = { candidates: issues.length, closed: 0, reopened: 0, synced: 0, ignored: 0, errors: 0 };
+  const stats = { candidates: issues.length, assigned: 0, closed: 0, reopened: 0, synced: 0, ignored: 0, errors: 0 };
   for (const issue of issues) {
     try {
-      stats[await reconcileIssue(token, issue)] += 1;
+      const repo = repoFromApiUrl(issue.repository_url);
+      const result = await reconcileIssue(token, issue);
+      stats[result] += 1;
+      const currentIssue = result === "reopened" ? { ...issue, state: "open" } : issue;
+      if (result !== "closed" && validOrgRepo(repo) && await ensureSecurityIssueAssignee(token, repo, currentIssue)) stats.assigned += 1;
     } catch (error) {
       stats.errors += 1;
       console.error("skvallerbyttan issue reconciliation failed", {

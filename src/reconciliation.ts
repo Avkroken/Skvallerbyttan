@@ -20,3 +20,7 @@ export function reconciledIssueState(alert: AlertReference, alertState: string):
   if (alertIsRemediated(alert, alertState)) return "closed";
   return alertState === "open" ? "open" : null;
 }
+
+export function needsAssignee(assignees: Array<{ login?: string }>, expectedLogin: string): boolean {
+  return !assignees.some(({ login }) => login?.toLowerCase() === expectedLogin.toLowerCase());
+}
