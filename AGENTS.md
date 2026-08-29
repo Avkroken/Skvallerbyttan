@@ -38,8 +38,8 @@ Do not assume that documentation is enforced. Verify live configuration when enf
 ## Branch and Pull Request Policy
 
 1. Never push directly to `main`.
-2. Create a short-lived working branch for each logical change.
-3. Open a pull request targeting `main`.
+2. For repository-content changes, use the repository's configured working-branch model. This repository's automated remediation flow uses the existing `work/feature`, `work/fix`, and `work/chore` branch pool; do not create an arbitrary replacement branch when that pool contract applies. For work outside that remediation flow, use an appropriate short-lived working branch unless another repository-local rule says otherwise.
+3. Open a pull request targeting `main` for repository-content changes.
 4. Enable repository-supported **auto-merge immediately after the pull request is created**.
 5. Keep auto-merge armed while CI, reviews, approvals, or other merge gates are still pending.
 
@@ -57,6 +57,8 @@ Never bypass:
 - merge queues;
 - force-push restrictions; or
 - other repository protections.
+
+Read-only reviews, investigations, and live GitHub/runtime configuration tasks do not require an artificial repository diff or empty pull request. When such a task changes live configuration without changing repository content, perform and verify the live change directly using the appropriate supported tool and report any mismatch with documented policy.
 
 ## Merge Gates
 
@@ -180,7 +182,7 @@ For runtime or deployment changes, verify the deployed code, configuration, bind
 
 ## Definition of Done
 
-A task is complete only when:
+A repository-content change is complete only when:
 
 - the requested change is implemented;
 - relevant tests or validation have been added or updated;
@@ -192,5 +194,7 @@ A task is complete only when:
 - required review threads are resolved;
 - repository merge rules are satisfied; and
 - the resulting repository or runtime state has been verified where applicable.
+
+A read-only or live-configuration task with no repository-content change is complete when the requested investigation or configuration change is finished and the resulting live state has been verified; do not create an empty or unrelated pull request solely to satisfy this checklist.
 
 If documented policy and live enforcement differ, report the discrepancy instead of assuming the documentation provides protection.
