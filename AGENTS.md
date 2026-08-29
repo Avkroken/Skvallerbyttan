@@ -1,90 +1,75 @@
 # AGENTS.md
 
-Den här filen innehåller instruktioner för AI-agenter som arbetar i repositoryt. Live repository configuration is the enforcing truth: när dokumentation och faktisk GitHub-enforcement skiljer sig ska den tillämpliga live-regeln följas och mismatchen rapporteras.
+Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-konfiguration är verkställande sanning när dokumentation och faktisk enforcement skiljer sig.
 
-Root-`AGENTS.md` är den auktoritativa källan för repositoryövergripande agentpolicy. En mer specifik `AGENTS.md` längre ned i katalogträdet får lägga till regler för sitt subtree, men ska inte duplicera eller motsäga den repositoryövergripande policyn.
+## Repository
 
-Följ dessutom de repository-specifika instruktionerna längre ned i denna fil.
+`Skvallerbyttan` är Avkrokens centrala säkerhetsalert- och remediationtjänst.
 
-<!-- AVKROKEN-COMMON:START -->
+- `src/index.ts` tar emot och verifierar GitHub organization-webhooks, backfillar alerts, reconciliar security Issues och kan markera dem som köade för remediation.
+- `.github/workflows/codex-security-dispatch.yml` är den enda GitHub-side writer som skapar automatiska Codex-remediation-branches och PR:er i organisationen.
+- `wrangler.jsonc` beskriver Worker-bindings, routes och Worker-cron.
+- Credentials och privata nycklar får aldrig committas eller loggas.
 
-## Arbetsprincip
+## Brancher och pull requests
 
-Leverera fungerande, verifierade och avgränsade ändringar. CI, GitHub Copilot Code Review och mänskliga reviewers är oberoende verifieringslager och ska inte vara den första debuggern för fel som agenten rimligen kan upptäcka själv före en pull request. Ändra inte mer än uppgiften kräver och bevara befintlig arkitektur och repository-specifika konventioner om det inte finns ett konkret skäl att ändra dem.
+- Pusha aldrig direkt till `main`.
+- Använd en kortlivad branch och öppna en ready PR till `main`.
+- Aktivera auto-merge omedelbart när PR:n skapats, även medan CI eller review pågår.
+- Använd inte direkt merge om det inte uttryckligen begärts.
+- Live-rulesetet tillåter endast squash merge.
+- Repositoryt använder inte merge queue och har ingen obligatorisk återanvändbar branchpool.
+- Central Codex-remediation använder körningsunika branches under `automation/codex-issue/`.
 
-## Innan implementation
+## Merge-gates
 
-1. Läs denna fil och eventuell närmare `AGENTS.md` för de filer som berörs.
-2. Läs relevant implementation, tester, konfiguration och närliggande dokumentation innan lösningen bestäms.
-3. Identifiera repositoryts faktiska build-, test-, lint-, typecheck- och CI-kommandon från befintlig konfiguration.
-4. Följ repositoryts branchmodell. Skapa inte egna branchkonventioner och anta inte att en policy är ruleset-enforced utan att den faktiskt är det.
-5. Gör minsta kompletta ändring som löser problemet.
+För `main` gäller:
 
-## Pre-PR quality gate
+- required status check: `CI / required`
+- olösta review-trådar blockerar merge
+- Copilot Code Review körs vid push till PR-grenen
+- squash är enda tillåtna merge-metod
 
-Innan en ready pull request skapas eller uppdateras ska agenten granska hela den egna diffen mot PR:ns base branch, kontrollera korrekthet, säkerhet, felhantering, kompatibilitet och relevanta edge cases, köra alla relevanta lokala tester samt tillämplig lint/typecheck/build, lägga till eller uppdatera tester när beteende ändras och detta är praktiskt testbart, kontrollera att inga secrets/credentials/debugrester/oavsiktliga filer har lagts till och fixa legitima egna findings före extern review.
+Alla review-kommentarer och trådar ska läsas och utvärderas. Relevanta findings åtgärdas i samma PR. En tråd markeras resolved först när eventuell nödvändig fix är pushad och verifierad.
 
-Efter en senare commit eller push ska påverkad validering köras igen. Om full lokal validering inte är möjlig ska detta redovisas konkret i PR:n; hitta inte på ett grönt resultat.
+Efter varje ny commit ska relevant CI och review-status kontrolleras igen. När required CI är grön och alla relevanta review-trådar är resolved ska den redan armerade auto-merge-funktionen föra PR:n till `main`.
 
-## Review-signal
+Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren identifieras. Kringgå inte repositoryskydd och använd inte direkt merge som fallback utan uttrycklig begäran.
 
-Prioritera funktionell och teknisk signal framför redaktionell puts. Rapportera inte rena stavnings-, grammatik-, interpunktions-, wording- eller stilfel i README, dokumentation, Markdown, kodkommentarer, docstrings eller annan mänskligt läsbar prosa. Rapportera däremot ett textfel när det materiellt kan ändra teknisk betydelse, säkerhet, korrekthet, användarbeteende eller en instruktion som förväntas köras eller kopieras bokstavligt, samt typos i maskin- eller semantikbärande innehåll såsom identifierare, strängkonstanter, paths, konfigurationsnycklar, environment-variabler, API-fält, kommandon, flags, selectors, protokoll- och enumvärden.
+## Central Codex-remediation
 
-Prioritera korrekthet, säkerhet, tillförlitlighet, kompatibilitet, tester och underhållbarhet.
+- `.github/workflows/codex-security-dispatch.yml` är enda automatiska branch-/PR-dispatcher.
+- Den får skapa högst en aktiv remediation per repository.
+- Nya remediationer använder en unik branch `automation/codex-issue/<issue>-<run>-<attempt>` från målrepositoryts aktuella default branch.
+- Seed-only PR:er ska vara draft och får inte ha auto-merge armerad.
+- `CODEX_TRIGGER_TOKEN` ska verifieras mot `CODEX_TRIGGER_LOGIN`; utan giltig användarcredential failar ny dispatch stängt.
+- Codex-triggern ska skrivas med den verifierade användarcredentialen; bot-skrivna `@codex`-mentions är inte ett giltigt delegationskontrakt.
+- PR:n får bli ready först när seed-filen är borttagen och minst en verklig filändring finns.
+- När PR:n blir ready ska auto-merge armeras. Om GitHub nekar därför att PR:n redan är `clean` ska PR:n lämnas öppen och blockeraren dokumenteras; direkt merge får inte användas automatiskt.
+- Branch protection, required CI och review-resolution i målrepositoryt är alltid auktoritativa.
 
-## Reviewnivå och eskalering
+## Security alert-ingestion
 
-Använd lägsta reviewnivå som ger tillräcklig säkerhet.
+- GitHub organization-webhooken är eventkällan.
+- Worker-signaturen `X-Hub-Signature-256` ska verifieras före payloadbehandling.
+- Backfill/reconciliation ska vara idempotent.
+- Dismissed alerts behandlas inte som verifierade fixes.
+- Secret Scanning-innehåll får aldrig kopieras till Issue- eller e-posttext.
+- Per-repository Code Scanning-snapshotfiler ska inte användas som separat datakälla; Skvallerbyttan läser GitHubs alert-API centralt.
 
-- **Low:** GitHub Copilot Code Review Lite för rutinmässiga, lokala och väl avgränsade ändringar.
-- **Medium:** Copilot Balanced för icke-trivial logik, flera sammanhängande komponenter eller API-/kompatibilitetsbeteende.
-- **High:** minst Balanced för auth/access control, credentials/secrets, persistent data/schema/migrationer, concurrency/retries/idempotency, distributed/cross-service state, protokoll/integrationskontrakt, releaseflöden, privilegierad infrastruktur eller stora/riskfyllda refactors. Om frågan fortfarande kräver en separat djup implementation eller ett oberoende andra pass, delegera via den installerade OpenAI Codex-agentens faktiska GitHub-`@handle`.
-- **Critical:** Balanced + Codex när ett fel trovärdigt kan innebära auth bypass, secret exposure, dataförlust/-korruption, destruktiv/irreversibel migration eller annan exceptionell produktionspåverkan. Om frågan fortfarande är olöst eller väsentligt tvetydig, begär ett separat andra pass från den installerade Anthropic Claude-agentens faktiska GitHub-`@handle`.
+## GitHub Actions
 
-Bygg inte ett nytt router-workflow enbart för denna eskalering. Native GitHub-delegering är standardvägen så länge inget organisationsbeslut säger annat.
+- `.github/workflows/ci.yml` producerar live-required context `CI / required`.
+- Required CI kör tester, typecheck, binding-validering och blockerar kvarvarande `.github/codex-dispatch/issue-*.md`.
+- `.github/workflows/osv-scanner.yml` är kompletterande säkerhetsverifiering och är inte en required context.
+- `pr-watchdog`, `sync-pool`, `scope-policy`, repository-local remediation-observer, bot-baserad review-auto-fix och Code Scanning-snapshot ska inte återinföras utan ett nytt verifierat behov och motsvarande live ruleset/design.
 
-## Pull request och merge
+## Verifiering
 
-Pusha aldrig direkt till `main`. Följ repositoryts specifika branchmodell och skapa en ready PR först när pre-PR-gaten är genomförd.
+Före PR: granska hela diffen mot `main` och kör relevant test/typecheck/binding-validering. Efter varje push: kontrollera aktuell HEAD, required CI, övriga relevanta säkerhetsjobb, mergeability och review-trådar igen.
 
-Efter varje ny commit eller push ska den aktuella PR-statusen verifieras igen: aktuell HEAD, required checks/CI, mergeability och mergekonflikter. Läs och utvärdera dessutom alla review-kommentarer och alla nya, öppna eller återöppnade review-trådar; relevanta findings ska åtgärdas innan PR:n betraktas som klar.
-
-När GitHub bedömer PR:n som direkt mergebar och alla tillämpliga repository-gates är uppfyllda — required checks/CI är klara och godkända, inga mergekonflikter finns, inga relevanta obligatoriskt olösta review-trådar eller andra blockers återstår och ingen relevant review-feedback är outhanterad — ska PR:n mergas omedelbart.
-
-Försök inte aktivera auto-merge på en PR som redan är direkt mergebar. Använd auto-merge när PR:n ännu inte kan mergas enbart därför att obligatoriska gates fortfarande väntar och repositoryt stöder auto-merge. Repositoryts aktuella ruleset, merge queue och repositoryinställningar bestämmer vilka merge-metoder som är tillåtna. Om GitHub inte tillåter merge trots att PR:n ser grön ut ska den konkreta blockeraren identifieras; forcera eller kringgå inte repositoryskydd.
-
-## Credentials och AI-infrastruktur
-
-Committa eller exponera aldrig secrets, tokens, privata nycklar eller andra credentials. Lägg inte till `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` eller annan extern AI-provider-credential i repository, Actions secrets eller organisationskonfiguration utan uttryckligt godkännande från repository- eller organisationsägaren. Ändra inte billing, Copilot-policy, repository secrets eller organisationsinställningar enbart för att möjliggöra AI-routing utan uttryckligt godkännande. Föredra befintliga GitHub/Copilot-native mekanismer framför nya workflows, botar eller dispatchers när de redan löser uppgiften.
+När ändringen påverkar Cloudflare bindings, secrets, routes, cron eller annan live-konfiguration ska den deployade konfigurationen verifieras efter merge/deploy.
 
 ## Definition of done
 
-För en uppgift som skapar eller uppdaterar en pull request är arbetet inte klart förrän implementationen är färdig och avgränsad, relevanta tester/checks har körts eller en konkret begränsning dokumenterats, den slutliga diffen självgranskats, all review-feedback har lästs och utvärderats, legitima findings har åtgärdats, PR-status verifierats mot aktuell HEAD, PR:n antingen mergats därför att alla gates är uppfyllda eller har auto-merge aktiverat därför att endast väntande obligatoriska gates återstår, och ingen repositoryregel har kringgåtts.
-
-För read-only reviews, investigations, frågor eller live-konfigurationsuppgifter som inte skapar eller uppdaterar en PR gäller inte PR-/mergekraven ovan. En sådan uppgift är klar när den efterfrågade undersökningen eller live-ändringen är genomförd och relevant resulterande status har verifierats.
-
-<!-- AVKROKEN-COMMON:END -->
-
-## Repository-specifika instruktioner
-
-### Branchmodell
-
-För repository-content changes används repositoryts konfigurerade arbetsgrensmodell. Den automatiserade remediation-modellen använder `work/feature`, `work/fix` och `work/chore`; skapa inte en godtycklig ersättningsgren när det kontraktet gäller. För arbete utanför remediation-flödet används en lämplig kortlivad arbetsgren om ingen annan repository-regel säger något annat.
-
-Read-only reviews, investigations och live GitHub/runtime-configuration tasks kräver inte en artificiell diff eller tom PR. När en sådan uppgift ändrar live-konfiguration utan repository-content ska ändringen utföras och verifieras direkt med lämpligt verktyg och eventuell konflikt mot dokumenterad policy rapporteras.
-
-### CI och validering
-
-Använd repositoryts befintliga scripts och tooling. Inspektera `package.json`, taskfiler, scripts och dokumentation innan kommandon väljs. Required check-namn ska matcha GitHubs faktiska check contexts exakt. Försvaga, hoppa över eller stäng inte av validering för att göra en PR mergebar.
-
-### Säkerhet
-
-Använd repositoryts etablerade secret-management- och environment-variable-mönster. Validera opålitlig extern input vid lämpliga boundaries och upprätthåll auth/authz server-side där det är relevant.
-
-### UI och design
-
-För ändringar som berör UI, components, pages, styling eller layout ska `DESIGN.md` läsas först när filen finns. Återanvänd design tokens/components, bevara semantisk HTML och keyboard accessibility, säkerställ focus states/accessibility names och använd inte enbart färg för att kommunicera state.
-
-### Dependencies
-
-Undvik nya dependencies när plattformen, ramverket eller en befintlig dependency redan löser behovet. Håll nödvändiga nya dependencies snävt avgränsade och motivera dem i PR:n.
+En PR-baserad uppgift är klar först när implementationen är färdig, diffen självgranskad, all review-feedback utvärderad, required `CI / required` är grön, relevanta review-trådar är resolved och auto-merge har mergat PR:n eller en konkret extern blockerare är verifierad och rapporterad.
