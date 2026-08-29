@@ -1,5 +1,6 @@
 name: CI
 
+# `CI / required` är den stabila merge-gaten för pull requests till main.
 on:
   pull_request:
     branches: [main]
