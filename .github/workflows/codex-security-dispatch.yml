@@ -16,7 +16,10 @@ concurrency:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      CODEX_TRIGGER_TOKEN: ${{ secrets.CODEX_TRIGGER_TOKEN }}
+      CODEX_TRIGGER_LOGIN: ${{ vars.CODEX_TRIGGER_LOGIN }}
     steps:
       - name: Hämta Gamnacken App-token för organisationen
         id: app-token
@@ -29,7 +32,7 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      - name: Skapa PR-kontext och delegera till Codex
+      - name: Reconcile remediation PRs and dispatch safely
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           github-token: ${{ steps.app-token.outputs.token }}
@@ -37,6 +40,9 @@ jobs:
             const org = context.repo.owner;
             const pool = ['work/fix', 'work/chore', 'work/feature'];
             const activeMarker = '<!-- skvallerbyttan-remediation -->';
+            const triggerToken = process.env.CODEX_TRIGGER_TOKEN || '';
+            const expectedTriggerLogin = (process.env.CODEX_TRIGGER_LOGIN || 'blixten85').trim();
+            const connectorLogin = 'chatgpt-codex-connector[bot]';
 
             const priority = title => {
               if (/\[(CRITICAL|MALWARE)\]/i.test(title)) return 0;
@@ -45,17 +51,229 @@ jobs:
               return 3;
             };
 
+            async function userApi(path, init = {}) {
+              if (!triggerToken) throw new Error('CODEX_TRIGGER_TOKEN saknas');
+              const response = await fetch(`https://api.github.com${path}`, {
+                ...init,
+                headers: {
+                  Accept: 'application/vnd.github+json',
+                  Authorization: `Bearer ${triggerToken}`,
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'Avkroken-skvallerbyttan-codex-trigger',
+                  ...(init.headers || {}),
+                },
+              });
+              const text = await response.text();
+              if (!response.ok) throw new Error(`user GitHub API ${response.status}: ${text.slice(0, 500)}`);
+              return text ? JSON.parse(text) : null;
+            }
+
+            async function ensureComment(owner, repo, issueNumber, marker, body) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: issueNumber, per_page: 100,
+              });
+              if (comments.some(comment => (comment.body || '').includes(marker))) return;
+              await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body: `${marker}\n${body}` });
+            }
+
+            async function disableAutoMerge(pr) {
+              if (!pr.auto_merge) return;
+              try {
+                await github.graphql(`
+                  mutation($pullRequestId: ID!) {
+                    disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+                      pullRequest { number }
+                    }
+                  }
+                `, { pullRequestId: pr.node_id });
+              } catch (error) {
+                core.warning(`Kunde inte avaktivera auto-merge på #${pr.number}: ${error.message}`);
+              }
+            }
+
+            async function keepDraft(pr, owner, repo) {
+              await disableAutoMerge(pr);
+              if (pr.draft) return;
+              await github.graphql(`
+                mutation($pullRequestId: ID!) {
+                  convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
+                    pullRequest { number isDraft }
+                  }
+                }
+              `, { pullRequestId: pr.node_id });
+            }
+
+            async function markReadyAndArm(pr) {
+              if (pr.draft) {
+                await github.graphql(`
+                  mutation($pullRequestId: ID!) {
+                    markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+                      pullRequest { number isDraft }
+                    }
+                  }
+                `, { pullRequestId: pr.node_id });
+              }
+              const fresh = await github.rest.pulls.get({ owner: pr.base.repo.owner.login, repo: pr.base.repo.name, pull_number: pr.number });
+              if (!fresh.data.auto_merge) {
+                await github.graphql(`
+                  mutation($pullRequestId: ID!) {
+                    enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: SQUASH }) {
+                      pullRequest { number }
+                    }
+                  }
+                `, { pullRequestId: pr.node_id });
+              }
+            }
+
+            async function codexAcknowledged(owner, repo, commentId) {
+              const reactions = await github.request('GET /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions', {
+                owner,
+                repo,
+                comment_id: commentId,
+                per_page: 100,
+                headers: { accept: 'application/vnd.github+json' },
+              });
+              return reactions.data.some(reaction =>
+                reaction.content === 'eyes' && reaction.user?.login === connectorLogin
+              );
+            }
+
+            async function postCodexTrigger(owner, repo, pr, issueNumber, retry = false) {
+              const marker = `<!-- skvallerbyttan-codex-trigger:${issueNumber} -->`;
+              const body = [
+                marker,
+                `@codex implement security issue #${issueNumber} autonomously on this existing PR.`,
+                '',
+                'Requirements:',
+                `- Read issue #${issueNumber} and verify the underlying security finding.`,
+                '- Read and follow AGENTS.md and repository instructions before changing code.',
+                '- Make the smallest safe fix without dismissing or changing the security alert state.',
+                '- Work on this existing PR/branch; do not create another branch or PR.',
+                `- Delete .github/codex-dispatch/issue-${issueNumber}.md before completion.`,
+                '- Run relevant tests/typechecks and address every valid CI or review finding.',
+                '- Re-read review summaries and unresolved inline threads after every push.',
+                '- Do not bypass branch protection, required checks, review resolution, or merge queue.',
+                retry ? '- This is an automatic retry because the previous Codex trigger was not acknowledged.' : '',
+              ].filter(Boolean).join('\n');
+
+              const comment = await userApi(`/repos/${owner}/${repo}/issues/${pr.number}/comments`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ body }),
+              });
+              const actualLogin = comment?.user?.login || '';
+              if (actualLogin.toLowerCase() !== expectedTriggerLogin.toLowerCase()) {
+                throw new Error(`CODEX_TRIGGER_TOKEN tillhör ${actualLogin || 'okänd användare'}, förväntade ${expectedTriggerLogin}`);
+              }
+              return comment;
+            }
+
+            let triggerIdentity = null;
+            if (triggerToken) {
+              const me = await userApi('/user');
+              triggerIdentity = me?.login || '';
+              if (triggerIdentity.toLowerCase() !== expectedTriggerLogin.toLowerCase()) {
+                throw new Error(`CODEX_TRIGGER_TOKEN tillhör ${triggerIdentity || 'okänd användare'}, förväntade ${expectedTriggerLogin}`);
+              }
+              core.notice(`Codex-trigger credential verifierat för ${triggerIdentity}.`);
+            } else {
+              core.warning('CODEX_TRIGGER_TOKEN saknas. Ingen ny seed/PR skapas; dispatch fail-closed.');
+            }
+
+            const repos = await github.paginate(github.rest.repos.listForOrg, { org, per_page: 100, type: 'all' });
+            const openPullsByRepo = new Map();
+
+            // First reconcile every existing remediation PR. Seed-only PRs are always draft
+            // and never allowed to retain auto-merge. A PR becomes ready only after the seed
+            // is gone and at least one real file differs from main.
+            for (const repository of repos.filter(repo => !repo.archived)) {
+              const owner = repository.owner.login;
+              const repo = repository.name;
+              const pulls = await github.paginate(github.rest.pulls.list, {
+                owner, repo, state: 'open', base: repository.default_branch || 'main', per_page: 100,
+              });
+              openPullsByRepo.set(repository.full_name, pulls);
+
+              for (const pr of pulls.filter(pr => (pr.body || '').includes(activeMarker))) {
+                const match = (pr.body || '').match(/skvallerbyttan-remediation-issue:(\d+)/);
+                if (!match) {
+                  core.warning(`${repository.full_name}#${pr.number} saknar issue-marker; lämnas orörd.`);
+                  continue;
+                }
+                const issueNumber = Number(match[1]);
+                const seedPath = `.github/codex-dispatch/issue-${issueNumber}.md`;
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner, repo, pull_number: pr.number, per_page: 100,
+                });
+                const seedPresent = files.some(file => file.filename === seedPath);
+                const realFiles = files.filter(file => file.filename !== seedPath);
+
+                if (seedPresent || realFiles.length === 0) {
+                  await keepDraft(pr, owner, repo);
+                  if (!triggerToken) {
+                    await ensureComment(
+                      owner,
+                      repo,
+                      pr.number,
+                      '<!-- skvallerbyttan-codex-dispatch:blocked-credential -->',
+                      'Automatisk Codex-delegering är pausad. `CODEX_TRIGGER_TOKEN` saknas i Skvallerbyttans Actions-secrets. PR:n hålls som draft och auto-merge är avstängd; seed-only får aldrig mergas.'
+                    );
+                    continue;
+                  }
+
+                  const triggerMarker = `<!-- skvallerbyttan-codex-trigger:${issueNumber} -->`;
+                  const comments = await github.paginate(github.rest.issues.listComments, {
+                    owner, repo, issue_number: pr.number, per_page: 100,
+                  });
+                  const triggers = comments.filter(comment =>
+                    comment.user?.login?.toLowerCase() === expectedTriggerLogin.toLowerCase() &&
+                    (comment.body || '').includes(triggerMarker) &&
+                    (comment.body || '').includes('@codex')
+                  );
+                  const last = triggers.at(-1);
+                  let acknowledged = last ? await codexAcknowledged(owner, repo, last.id) : false;
+                  const ageMs = last?.created_at ? Date.now() - Date.parse(last.created_at) : Number.POSITIVE_INFINITY;
+
+                  if (!acknowledged && (!last || ageMs >= 10 * 60 * 1000)) {
+                    const posted = await postCodexTrigger(owner, repo, pr, issueNumber, Boolean(last));
+                    for (let attempt = 0; attempt < 12 && !acknowledged; attempt += 1) {
+                      await new Promise(resolve => setTimeout(resolve, 5000));
+                      acknowledged = await codexAcknowledged(owner, repo, posted.id);
+                    }
+                  }
+
+                  if (!acknowledged) {
+                    await ensureComment(
+                      owner,
+                      repo,
+                      pr.number,
+                      '<!-- skvallerbyttan-codex-dispatch:no-ack -->',
+                      'Codex-triggern har ännu inte kvitterats med 👀 av `chatgpt-codex-connector[bot]`. PR:n förblir draft och kan inte auto-merga.'
+                    );
+                  }
+                  continue;
+                }
+
+                await markReadyAndArm(pr);
+                await ensureComment(
+                  owner,
+                  repo,
+                  pr.number,
+                  `<!-- skvallerbyttan-codex-finalized:${issueNumber} -->`,
+                  'Seed-filen är borttagen och PR:n innehåller verkliga ändringar. PR:n är därför ready-for-review och squash auto-merge är armerad; ordinarie CI/review/ruleset-gates är fortsatt blockerande.'
+                );
+              }
+            }
+
             const search = await github.paginate(github.rest.search.issuesAndPullRequests, {
               q: `org:${org} is:issue is:open in:body "skvallerbyttan-alert:"`,
               sort: 'created',
               order: 'asc',
               per_page: 100,
             });
-
             const issues = search
               .filter(item => !item.pull_request)
               .sort((a, b) => priority(a.title || '') - priority(b.title || '') || a.number - b.number);
-
             const handledRepos = new Set();
 
             for (const issue of issues) {
@@ -65,184 +283,127 @@ jobs:
               const fullName = repositoryUrl.slice(prefix.length);
               if (!fullName.toLowerCase().startsWith(`${org.toLowerCase()}/`)) continue;
               if (handledRepos.has(fullName)) continue;
+              handledRepos.add(fullName);
 
               const [owner, repo] = fullName.split('/');
               const issueNumber = issue.number;
-              const issueMarker = `<!-- skvallerbyttan-codex-pr:${issueNumber} -->`;
-              handledRepos.add(fullName);
-
-              core.startGroup(`${fullName}#${issueNumber}`);
-              try {
-                const existingPrs = await github.paginate(github.rest.pulls.list, {
-                  owner,
-                  repo,
-                  state: 'open',
-                  base: 'main',
-                  per_page: 100,
-                });
-
-                const remediationPr = existingPrs.find(pr =>
-                  (pr.body || '').includes(activeMarker) &&
-                  (pr.body || '').includes(`<!-- skvallerbyttan-remediation-issue:${issueNumber} -->`)
-                );
-
-                if (remediationPr) {
-                  core.info(`Remediation-PR #${remediationPr.number} finns redan.`);
-                  continue;
-                }
-
-                if (existingPrs.some(pr => (pr.body || '').includes(activeMarker))) {
-                  core.info('Repot har redan en aktiv Skvallerbyttan-remediation; köar issuet.');
-                  continue;
-                }
-
-                const repository = await github.rest.repos.get({ owner, repo });
-                const base = repository.data.default_branch || 'main';
-                const baseRef = await github.rest.git.getRef({ owner, repo, ref: `heads/${base}` });
-                const baseSha = baseRef.data.object.sha;
-
-                let selected = null;
-                for (const branch of pool) {
-                  try {
-                    const ref = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
-                    if (ref.data.object.sha !== baseSha) continue;
-                    const prs = await github.rest.pulls.list({
-                      owner,
-                      repo,
-                      state: 'open',
-                      head: `${owner}:${branch}`,
-                      per_page: 1,
-                    });
-                    if (prs.data.length === 0) {
-                      selected = branch;
-                      break;
-                    }
-                  } catch (error) {
-                    if (error.status !== 404) throw error;
-                  }
-                }
-
-                if (!selected) {
-                  const comments = await github.paginate(github.rest.issues.listComments, {
-                    owner,
-                    repo,
-                    issue_number: issueNumber,
-                    per_page: 100,
-                  });
-                  const blocker = '<!-- skvallerbyttan-codex-dispatch:blocked-pool -->';
-                  if (!comments.some(comment => (comment.body || '').includes(blocker))) {
-                    await github.rest.issues.createComment({
-                      owner,
-                      repo,
-                      issue_number: issueNumber,
-                      body: `${blocker}\nCodex-remediation väntar: ingen av \`work/fix\`, \`work/chore\` eller \`work/feature\` är både ledig och exakt synkad med \`${base}\`. Skvallerbyttan kringgår inte branch protection eller befintligt arbete.`,
-                    });
-                  }
-                  core.warning('Ingen ren ledig poolgren; ingen dispatch.');
-                  continue;
-                }
-
-                const seedPath = `.github/codex-dispatch/issue-${issueNumber}.md`;
-                const seed = [
-                  '# Codex remediation seed',
-                  '',
-                  `Temporary PR context for security issue #${issueNumber}.`,
-                  '',
-                  'Codex must implement and verify the real fix, then delete this file before completion.',
-                  '',
-                ].join('\n');
-
-                await github.rest.repos.createOrUpdateFileContents({
-                  owner,
-                  repo,
-                  path: seedPath,
-                  message: `chore: seed Codex remediation for #${issueNumber}`,
-                  content: Buffer.from(seed).toString('base64'),
-                  branch: selected,
-                });
-
-                const pr = await github.rest.pulls.create({
-                  owner,
-                  repo,
-                  head: selected,
-                  base,
-                  title: `fix(security): remediate issue #${issueNumber}`,
-                  body: [
-                    activeMarker,
-                    `<!-- skvallerbyttan-remediation-issue:${issueNumber} -->`,
-                    '',
-                    `Automatisk Codex-remediation för säkerhetsissue #${issueNumber}.`,
-                    '',
-                    `Seed-filen \`${seedPath}\` är tillfällig och ska tas bort innan PR:n är färdig.`,
-                    '',
-                    `Fixes #${issueNumber}`,
-                  ].join('\n'),
-                  draft: false,
-                  maintainer_can_modify: true,
-                });
-
-                const node = await github.graphql(`
-                  query($owner: String!, $repo: String!, $number: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      pullRequest(number: $number) { id }
-                    }
-                  }
-                `, { owner, repo, number: pr.data.number });
-
-                try {
-                  await github.graphql(`
-                    mutation($pullRequestId: ID!) {
-                      enablePullRequestAutoMerge(input: {
-                        pullRequestId: $pullRequestId,
-                        mergeMethod: SQUASH
-                      }) { pullRequest { number } }
-                    }
-                  `, { pullRequestId: node.repository.pullRequest.id });
-                  core.notice(`Auto-merge armerad direkt på #${pr.data.number}.`);
-                } catch (error) {
-                  core.warning(`Auto-merge kunde inte armeras direkt: ${error.message}`);
-                }
-
-                await github.graphql(`
-                  mutation($pullRequestId: ID!) {
-                    convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
-                      pullRequest { number isDraft }
-                    }
-                  }
-                `, { pullRequestId: node.repository.pullRequest.id });
-
-                const prompt = [
-                  `@codex implement security issue #${issueNumber} autonomously on this existing PR.`,
-                  '',
-                  `Issue: ${issue.html_url}`,
-                  '',
-                  'Requirements:',
-                  '- Read the issue and verify the underlying security finding.',
-                  '- Read and follow AGENTS.md and repository instructions before changing code.',
-                  '- Make the smallest safe fix without dismissing or changing the security alert state.',
-                  '- Work on this existing PR/branch; do not create another branch or PR.',
-                  `- Delete \`${seedPath}\` before completion.`,
-                  '- Run relevant tests/typechecks and address every valid CI or review finding.',
-                  '- Re-read review summaries and unresolved inline threads after every push.',
-                  '- Do not bypass branch protection, required checks, review resolution, or merge queue.',
-                ].join('\n');
-
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: pr.data.number,
-                  body: prompt,
-                });
-
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: issueNumber,
-                  body: `${issueMarker}\nCodex-remediation har flyttats till PR-kontext: ${pr.data.html_url}. PR:n hålls som draft tills seed-filen är borttagen; därefter ska ordinarie CI/review-gates och auto-merge styra merge.`,
-                });
-
-                core.notice(`Dispatchade ${fullName}#${issueNumber} till PR #${pr.data.number}.`);
-              } finally {
-                core.endGroup();
+              const pulls = openPullsByRepo.get(fullName) || [];
+              const remediationPr = pulls.find(pr =>
+                (pr.body || '').includes(activeMarker) &&
+                (pr.body || '').includes(`<!-- skvallerbyttan-remediation-issue:${issueNumber} -->`)
+              );
+              if (remediationPr) continue;
+              if (pulls.some(pr => (pr.body || '').includes(activeMarker))) {
+                core.info(`${fullName} har redan en aktiv remediation; #${issueNumber} köas.`);
+                continue;
               }
+
+              if (!triggerToken) {
+                await ensureComment(
+                  owner,
+                  repo,
+                  issueNumber,
+                  '<!-- skvallerbyttan-codex-dispatch:blocked-credential -->',
+                  'Automatisk Codex-remediation väntar. Skvallerbyttans `CODEX_TRIGGER_TOKEN` är inte konfigurerad, och bot-skrivna `@codex`-kommentarer används inte eftersom Codex inte kvitterar dem. Ingen seed-PR skapas förrän en giltig användarcredential finns.'
+                );
+                continue;
+              }
+
+              const repository = repos.find(candidate => candidate.full_name === fullName);
+              const base = repository?.default_branch || 'main';
+              const baseRef = await github.rest.git.getRef({ owner, repo, ref: `heads/${base}` });
+              const baseSha = baseRef.data.object.sha;
+              let selected = null;
+              for (const branch of pool) {
+                try {
+                  const ref = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+                  if (ref.data.object.sha !== baseSha) continue;
+                  const branchPrs = await github.rest.pulls.list({
+                    owner, repo, state: 'open', head: `${owner}:${branch}`, per_page: 1,
+                  });
+                  if (branchPrs.data.length === 0) {
+                    selected = branch;
+                    break;
+                  }
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+              }
+
+              if (!selected) {
+                await ensureComment(
+                  owner,
+                  repo,
+                  issueNumber,
+                  '<!-- skvallerbyttan-codex-dispatch:blocked-pool -->',
+                  `Codex-remediation väntar: ingen av \`work/fix\`, \`work/chore\` eller \`work/feature\` är både ledig och exakt synkad med \`${base}\`. Ingen branch eller protection kringgås.`
+                );
+                continue;
+              }
+
+              const seedPath = `.github/codex-dispatch/issue-${issueNumber}.md`;
+              const seed = [
+                '# Codex remediation seed',
+                '',
+                `Temporary PR context for security issue #${issueNumber}.`,
+                '',
+                'Codex must implement and verify the real fix, then delete this file before completion.',
+                '',
+              ].join('\n');
+              await github.rest.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: seedPath,
+                message: `chore: seed Codex remediation for #${issueNumber}`,
+                content: Buffer.from(seed).toString('base64'),
+                branch: selected,
+              });
+
+              const pr = await github.rest.pulls.create({
+                owner,
+                repo,
+                head: selected,
+                base,
+                title: `fix(security): remediate issue #${issueNumber}`,
+                body: [
+                  activeMarker,
+                  `<!-- skvallerbyttan-remediation-issue:${issueNumber} -->`,
+                  '',
+                  `Automatisk Codex-remediation för säkerhetsissue #${issueNumber}.`,
+                  '',
+                  `Seed-filen \`${seedPath}\` är tillfällig. PR:n hålls som draft och saknar auto-merge tills seed-filen är borttagen och verkliga ändringar finns.`,
+                  '',
+                  `Fixes #${issueNumber}`,
+                ].join('\n'),
+                draft: true,
+                maintainer_can_modify: true,
+              });
+
+              const posted = await postCodexTrigger(owner, repo, pr.data, issueNumber, false);
+              let acknowledged = false;
+              for (let attempt = 0; attempt < 12 && !acknowledged; attempt += 1) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                acknowledged = await codexAcknowledged(owner, repo, posted.id);
+              }
+
+              const issueMarker = `<!-- skvallerbyttan-codex-pr:${issueNumber} -->`;
+              await ensureComment(
+                owner,
+                repo,
+                issueNumber,
+                issueMarker,
+                acknowledged
+                  ? `Codex-remediation har flyttats till PR-kontext: ${pr.data.html_url}. Codex kvitterade triggern; PR:n hålls draft tills den verkliga fixen har ersatt seed-filen.`
+                  : `Codex-remediation har flyttats till PR-kontext: ${pr.data.html_url}, men Codex-triggern har ännu inte kvitterats. PR:n förblir draft och kan inte auto-merga.`
+              );
+              if (!acknowledged) {
+                await ensureComment(
+                  owner,
+                  repo,
+                  pr.data.number,
+                  '<!-- skvallerbyttan-codex-dispatch:no-ack -->',
+                  'Codex-triggern har ännu inte kvitterats med 👀. Ingen merge kan ske medan seed-filen finns kvar.'
+                );
+              }
+              core.notice(`Dispatchade ${fullName}#${issueNumber} till draft-PR #${pr.data.number}; acknowledged=${acknowledged}.`);
             }
