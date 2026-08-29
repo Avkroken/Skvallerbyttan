@@ -320,22 +320,13 @@ async function requestCodexRemediation(token: string, repo: string, issueNumber:
   const requestMarker = `skvallerbyttan-remediation:${marker}`;
   const comments = await issueComments(token, repo, issueNumber);
   if (comments.some((comment) => (comment.body ?? "").includes(requestMarker))) return "exists";
-  if (await repoHasActiveCodexRemediation(token, repo)) return "busy";
 
   const body = [
-    `<!-- ${SKVALLERBYTTAN_ACTIVE_MARKER} -->`,
+    "<!-- skvallerbyttan-remediation:queued -->",
     `<!-- ${requestMarker} -->`,
-    "@codex implement this security issue autonomously.",
-    "",
-    "Requirements:",
-    "- Verify the finding and make the smallest safe fix without changing the security alert state.",
-    "- Follow the repository AGENTS.md and use an available work/feature, work/fix, or work/chore pool branch; never push directly to main.",
-    `- Open a squash PR that includes \`Fixes #${issueNumber}\` and \`<!-- skvallerbyttan-remediation -->\` in its body.`,
-    "- Immediately enable auto-merge for the PR when it is opened. Do not wait for checks before enabling it; branch protection, required checks, review resolution, and the merge queue remain authoritative.",
-    "- Treat every human and trusted automated review comment as required work. Re-read all review summaries and unresolved inline threads after each review or push.",
-    "- For each finding: investigate it, implement and test every valid fix, or reply with concrete evidence when it is a false positive or does not apply. Never dismiss a finding silently.",
-    "- Resolve a review thread only after the latest commit contains its verified fix, or after the evidentiary reply explains why no change is correct. Do not resolve threads merely to unblock merge.",
-    "- Keep iterating on CI and review feedback on the same PR until every conversation is resolved, all required checks are green, and the merge queue accepts it. Do not bypass or weaken any protection.",
+    "Säkerhetsärendet är köat för den centrala Codex-dispatchern.",
+    "Branch/PR-skapande och Codex-delegering ägs av Avkroken/Skvallerbyttan/.github/workflows/codex-security-dispatch.yml.",
+    "Bot-skrivna @codex-kommentarer räknas inte som delegation; den centrala dispatchern kräver en verifierad användarcredential och fail-closed om den saknas.",
   ].join("\n");
 
   await github(token, `/repos/${repo}/issues/${issueNumber}/comments`, {
