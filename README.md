@@ -25,11 +25,22 @@ A valid GitHub organization-webhook `ping` also starts the same backfill asynchr
 
 ## Automatic Codex remediation
 
-Every five minutes, the Worker scans open security Issues and dispatches at most one Codex remediation per repository. Critical and malware findings are prioritized before high, Secret Scanning, and medium findings. A newly created webhook Issue also requests a queue pass immediately.
+Skvallerbyttan uses one authoritative GitHub-side dispatcher: `.github/workflows/codex-security-dispatch.yml`. The Worker may queue an open security Issue, but it does not create branches, pull requests, auto-merge requests, or bot-authored `@codex` delegation comments. Repository-local `codex-issue-remediation.yml` files are compatibility observers only and must not mutate repository state.
 
-The Worker posts the request as Gamnacken so the `@codex` mention can start downstream automation. Requests are deduplicated with `skvallerbyttan-remediation:<skvallerbyttan marker>`, and an open `skvallerbyttan-remediation:active` Issue keeps later findings in that repository queued until the active Issue is closed by its merged PR.
+The central dispatcher runs every five minutes and processes at most one active remediation per repository. Critical and malware findings are prioritized before high, Secret Scanning, and medium findings. It uses the Gamnacken GitHub App for branch/PR/Issue operations and a separate user credential only for the `@codex` trigger itself.
 
-Codex is instructed to use the repository's existing branch pool, open a squash PR with `Fixes #<issue>`, enable auto-merge immediately, and continue handling CI and trusted automated review feedback. Required checks, branch protection, review resolution, and the merge queue remain authoritative; the Worker never changes the underlying security alert state.
+`CODEX_TRIGGER_TOKEN` is required for fully automatic Codex delegation. It must authenticate as `CODEX_TRIGGER_LOGIN` (default `blixten85`). The token is used only to create the PR comment that mentions `@codex`; Gamnacken remains the identity used for repository mutations. A fine-grained token therefore needs only the repository access and Issue-comment permission necessary to comment on the target pull requests. If the token is missing or belongs to another user, dispatch fails closed and no seed PR is created.
+
+A new remediation PR is always created as **draft** and auto-merge is not armed at creation time. The dispatcher verifies the human-authored Codex trigger by looking for the `eyes` acknowledgement from `chatgpt-codex-connector[bot]`. Lack of acknowledgement leaves the PR as draft and produces a durable blocker marker instead of silently continuing.
+
+The PR stays draft while `.github/codex-dispatch/issue-<number>.md` remains in the diff. On later queue passes, the dispatcher requires both conditions before finalization:
+
+- the seed file has been removed; and
+- at least one real, non-seed file differs from `main`.
+
+Only then is the PR marked ready for review and squash auto-merge is armed. Required checks, branch protection, review-thread resolution, and merge queue rules remain authoritative. Seed-only PRs have auto-merge disabled and are forced back to draft, so a failed Codex delegation cannot close an Issue by merging its placeholder.
+
+Manual recovery uses a normal user-authored `@codex ...` PR comment. Bot-authored mentions are intentionally not treated as successful delegation. The dispatcher can retry an unacknowledged user trigger after a cooldown when `CODEX_TRIGGER_TOKEN` is configured.
 
 ## Organization webhook
 
