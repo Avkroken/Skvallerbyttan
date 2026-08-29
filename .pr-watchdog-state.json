@@ -1,10 +1,1 @@
-{
-  "automation/security-reports": {
-    "headSha": "d98637c8910341e8fddf80cd49534a8f986e2b72",
-    "firstSeenAt": "2026-08-29T13:21:11.912Z"
-  },
-  "work/github-app-pem": {
-    "headSha": "7cb896bebf3d70a6aa3c6e80190b561369cb752d",
-    "firstSeenAt": "2026-08-29T13:21:11.912Z"
-  }
-}
+{}
