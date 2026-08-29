@@ -31,7 +31,6 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           source_path = Path('src/index.ts')
           source = source_path.read_text()
@@ -39,13 +38,15 @@ jobs:
           body_start = source.index('  const body = [', fn_start)
           body_end_marker = '  ].join("\\n");'
           body_end = source.index(body_end_marker, body_start) + len(body_end_marker)
-          replacement = '''  const body = [
-            "<!-- skvallerbyttan-remediation:queued -->",
-            `<!-- ${requestMarker} -->`,
-            "Säkerhetsärendet är köat för den centrala Codex-dispatchern.",
-            "Branch/PR-skapande och Codex-delegering ägs av Avkroken/Skvallerbyttan/.github/workflows/codex-security-dispatch.yml.",
-            "Bot-skrivna @codex-kommentarer räknas inte som delegation; den centrala dispatchern kräver en verifierad användarcredential och fail-closed om den saknas.",
-          ].join("\\n");'''
+          replacement = '\n'.join([
+              '  const body = [',
+              '    "<!-- skvallerbyttan-remediation:queued -->",',
+              '    `<!-- ${requestMarker} -->`,',
+              '    "Säkerhetsärendet är köat för den centrala Codex-dispatchern.",',
+              '    "Branch/PR-skapande och Codex-delegering ägs av Avkroken/Skvallerbyttan/.github/workflows/codex-security-dispatch.yml.",',
+              '    "Bot-skrivna @codex-kommentarer räknas inte som delegation; den centrala dispatchern kräver en verifierad användarcredential och fail-closed om den saknas.",',
+              '  ].join("\\n");',
+          ])
           source = source[:body_start] + replacement + source[body_end:]
           source = source.replace('  if (await repoHasActiveCodexRemediation(token, repo)) return "busy";\n', '')
           source_path.write_text(source)
@@ -54,25 +55,27 @@ jobs:
           readme = readme_path.read_text()
           start = readme.index('## Automatic Codex remediation')
           end = readme.index('\n## Organization webhook', start)
-          section = '''## Automatic Codex remediation
-
-Skvallerbyttan uses one authoritative GitHub-side dispatcher: `.github/workflows/codex-security-dispatch.yml`. The Worker may queue an open security Issue, but it does not create branches, pull requests, auto-merge requests, or bot-authored `@codex` delegation comments. Repository-local `codex-issue-remediation.yml` files are compatibility observers only and must not mutate repository state.
-
-The central dispatcher runs every five minutes and processes at most one active remediation per repository. Critical and malware findings are prioritized before high, Secret Scanning, and medium findings. It uses the Gamnacken GitHub App for branch/PR/Issue operations and a separate user credential only for the `@codex` trigger itself.
-
-`CODEX_TRIGGER_TOKEN` is required for fully automatic Codex delegation. It must authenticate as `CODEX_TRIGGER_LOGIN` (default `blixten85`). The token is used only to create the PR comment that mentions `@codex`; Gamnacken remains the identity used for repository mutations. A fine-grained token therefore needs only the repository access and Issue-comment permission necessary to comment on the target pull requests. If the token is missing or belongs to another user, dispatch fails closed and no seed PR is created.
-
-A new remediation PR is always created as **draft** and auto-merge is not armed at creation time. The dispatcher verifies the human-authored Codex trigger by looking for the `eyes` acknowledgement from `chatgpt-codex-connector[bot]`. Lack of acknowledgement leaves the PR as draft and produces a durable blocker marker instead of silently continuing.
-
-The PR stays draft while `.github/codex-dispatch/issue-<number>.md` remains in the diff. On later queue passes, the dispatcher requires both conditions before finalization:
-
-- the seed file has been removed; and
-- at least one real, non-seed file differs from `main`.
-
-Only then is the PR marked ready for review and squash auto-merge is armed. Required checks, branch protection, review-thread resolution, and merge queue rules remain authoritative. Seed-only PRs have auto-merge disabled and are forced back to draft, so a failed Codex delegation cannot close an Issue by merging its placeholder.
-
-Manual recovery uses a normal user-authored `@codex ...` PR comment. Bot-authored mentions are intentionally not treated as successful delegation. The dispatcher can retry an unacknowledged user trigger after a cooldown when `CODEX_TRIGGER_TOKEN` is configured.
-'''
+          section = '\n'.join([
+              '## Automatic Codex remediation',
+              '',
+              'Skvallerbyttan uses one authoritative GitHub-side dispatcher: `.github/workflows/codex-security-dispatch.yml`. The Worker may queue an open security Issue, but it does not create branches, pull requests, auto-merge requests, or bot-authored `@codex` delegation comments. Repository-local `codex-issue-remediation.yml` files are compatibility observers only and must not mutate repository state.',
+              '',
+              'The central dispatcher runs every five minutes and processes at most one active remediation per repository. Critical and malware findings are prioritized before high, Secret Scanning, and medium findings. It uses the Gamnacken GitHub App for branch/PR/Issue operations and a separate user credential only for the `@codex` trigger itself.',
+              '',
+              '`CODEX_TRIGGER_TOKEN` is required for fully automatic Codex delegation. It must authenticate as `CODEX_TRIGGER_LOGIN` (default `blixten85`). The token is used only to create the PR comment that mentions `@codex`; Gamnacken remains the identity used for repository mutations. A fine-grained token therefore needs only the repository access and Issue-comment permission necessary to comment on the target pull requests. If the token is missing or belongs to another user, dispatch fails closed and no seed PR is created.',
+              '',
+              'A new remediation PR is always created as **draft** and auto-merge is not armed at creation time. The dispatcher verifies the human-authored Codex trigger by looking for the `eyes` acknowledgement from `chatgpt-codex-connector[bot]`. Lack of acknowledgement leaves the PR as draft and produces a durable blocker marker instead of silently continuing.',
+              '',
+              'The PR stays draft while `.github/codex-dispatch/issue-<number>.md` remains in the diff. On later queue passes, the dispatcher requires both conditions before finalization:',
+              '',
+              '- the seed file has been removed; and',
+              '- at least one real, non-seed file differs from `main`.',
+              '',
+              'Only then is the PR marked ready for review and squash auto-merge is armed. Required checks, branch protection, review-thread resolution, and merge queue rules remain authoritative. Seed-only PRs have auto-merge disabled and are forced back to draft, so a failed Codex delegation cannot close an Issue by merging its placeholder.',
+              '',
+              'Manual recovery uses a normal user-authored `@codex ...` PR comment. Bot-authored mentions are intentionally not treated as successful delegation. The dispatcher can retry an unacknowledged user trigger after a cooldown when `CODEX_TRIGGER_TOKEN` is configured.',
+              '',
+          ])
           readme_path.write_text(readme[:start] + section + readme[end:])
           PY
 
