@@ -12,9 +12,9 @@ README beskriver nuvarande design. När dokumentation och faktisk runtime skilje
 - `dependabot_alert`
 - `secret_scanning_alert`
 
-Webhook-signaturen `X-Hub-Signature-256` verifieras innan payloaden behandlas. Webhook-body begränsas till 1 MiB. Signerade deliveries med `X-GitHub-Delivery` dedupliceras persistent via Durable Object storage, och alert→Issue-operationer använder samma persistenta idempotenslager.
+`src/worker.ts` äger webhookens yttre säkerhetsgräns. Webhook-body läses streamat och avbryts när den överskrider 1 MiB, innan en för stor payload buffras färdigt. Därefter verifieras `X-Hub-Signature-256` en gång innan den verifierade payloaden lämnas till kärnlogiken. Signerade deliveries med `X-GitHub-Delivery` dedupliceras persistent via Durable Object storage, och alert→Issue-operationer använder samma persistenta idempotenslager.
 
-Medium, High och Critical Code Scanning-/Dependabot-fynd skapar Issues; Dependabot malware inkluderas alltid. Secret Scanning-fynd skapar Issues utan att själva secret-värdet kopieras till Issue eller e-post.
+Medium, High och Critical Code Scanning-/Dependabot-fynd skapar Issues; Dependabot malware inkluderas alltid. Secret Scanning-fynd skapar Issues utan att själva secret-värdet kopieras till Issue eller e-post. För nya eller återöppnade Secret Scanning-alerts ingår även e-postleveransen i webhookens framgångsvillkor: ett temporärt e-postfel ger 5xx och delivery-leasen släpps så GitHub kan försöka webhooken igen utan att skapa ett duplicerat Issue.
 
 Issues dedupliceras med stabila `skvallerbyttan-alert:*`-markörer. Alert-state är auktoritativ: verifierat fixed/resolved stänger motsvarande Issue, medan ett fortfarande öppet alert kan återöppna ett för tidigt stängt Issue. Dismissed state behandlas inte som verifierad remediation.
 
@@ -31,11 +31,11 @@ Readiness gör avsiktligt ingen GitHub-API-förfrågan, så probes skapar inte e
 
 Cloudflare Workern kör organization-wide backfill/reconciliation enligt `wrangler.jsonc`. Workern äger alert-ingestion, Issue-skapande och alert-state-reconciliation. Den skapar inte remediation-branches, pull requests eller Codex-delegeringar.
 
-Per-repository Code Scanning-snapshotfiler behövs inte: Workern läser GitHubs centrala alert-API direkt.
+Alert-backfill läser GitHubs centrala alert-API. Issue-reconciliation listar organisationens aktiva repositories och paginerar respektive repositorys Issues, vilket undviker GitHub Searchs globala 1 000-resultatsfönster. Per-repository Code Scanning-snapshotfiler behövs därför inte som separat datakälla.
 
 ## Automatisk Codex-remediation
 
-`.github/workflows/codex-security-dispatch.yml` är den enda automatiska dispatcher som får skapa remediation-branches och PR:er.
+`.github/workflows/codex-security-dispatch.yml` är den enda automatiska workflow-dispatcher som får skapa remediation-branches och PR:er. Workflowen håller orchestration, credentials och permissions deklarativa och laddar implementationen från `.github/scripts/codex-security-dispatch.cjs`. Alert-scope-policyn ligger separat i `.github/scripts/remediation-scope.cjs`.
 
 Flödet är:
 
