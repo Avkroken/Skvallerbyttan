@@ -19,7 +19,6 @@ const ORG = "Avkroken";
 const API_VERSION = "2022-11-28";
 const ISSUE_SEVERITIES = new Set(["medium", "high", "critical"]);
 const SUPPORTED_EVENTS = new Set(["code_scanning_alert", "dependabot_alert", "secret_scanning_alert"]);
-const SKVALLERBYTTAN_ACTIVE_MARKER = "skvallerbyttan-remediation:active";
 const SECURITY_ISSUE_ASSIGNEE = "blixten85";
 const ASSIGNMENT_PAUSED_REPOS = new Set(["avkroken/produkter"]);
 
@@ -201,10 +200,6 @@ function repoFromApiUrl(repositoryUrl: string): string {
   return repositoryUrl.startsWith(prefix) ? repositoryUrl.slice(prefix.length) : "";
 }
 
-function skvallerbyttanMarker(body: string): string | null {
-  return body.match(/skvallerbyttan-alert:(code-scanning|dependabot|secret-scanning):\d+/)?.[0] ?? null;
-}
-
 async function closeRemediatedIssue(token: string, repo: string, issueNumber: number, alert: AlertReference, state: string): Promise<void> {
   const marker = `skvallerbyttan-reconciled:${alert.type}:${alert.number}:${state}`;
   await github(token, `/repos/${repo}/issues/${issueNumber}/comments`, {
@@ -297,68 +292,6 @@ async function runIssueReconciliation(token: string): Promise<void> {
     }
   }
   console.log("skvallerbyttan issue reconciliation complete", stats);
-}
-
-function codexPriority(title: string): number {
-  if (/\[(CRITICAL|MALWARE)\]/i.test(title)) return 0;
-  if (/\[HIGH\]/i.test(title)) return 1;
-  if (/\[Secret scanning\]/i.test(title)) return 2;
-  return 3;
-}
-
-async function issueComments(token: string, repo: string, issueNumber: number): Promise<Array<{ body?: string }>> {
-  return listAll(token, `/repos/${repo}/issues/${issueNumber}/comments?per_page=100`);
-}
-
-async function repoHasActiveCodexRemediation(token: string, repo: string): Promise<boolean> {
-  const query = `repo:${repo} is:issue is:open in:comments \"${SKVALLERBYTTAN_ACTIVE_MARKER}\"`;
-  const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ total_count?: number }>();
-  return (data.total_count ?? 0) > 0;
-}
-
-async function requestCodexRemediation(token: string, repo: string, issueNumber: number, marker: string): Promise<"dispatched" | "exists" | "busy"> {
-  const requestMarker = `skvallerbyttan-remediation:${marker}`;
-  const comments = await issueComments(token, repo, issueNumber);
-  if (comments.some((comment) => (comment.body ?? "").includes(requestMarker))) return "exists";
-
-  const body = [
-    "<!-- skvallerbyttan-remediation:queued -->",
-    `<!-- ${requestMarker} -->`,
-    "Säkerhetsärendet är köat för den centrala Codex-dispatchern.",
-    "Branch/PR-skapande och Codex-delegering ägs av Avkroken/Skvallerbyttan/.github/workflows/codex-security-dispatch.yml.",
-    "Bot-skrivna @codex-kommentarer räknas inte som delegation; den centrala dispatchern kräver en verifierad användarcredential och fail-closed om den saknas.",
-  ].join("\n");
-
-  await github(token, `/repos/${repo}/issues/${issueNumber}/comments`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ body }),
-  });
-  return "dispatched";
-}
-
-async function runCodexQueue(token: string): Promise<void> {
-  const query = `org:${ORG} is:issue is:open in:body \"skvallerbyttan-alert:\"`;
-  const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=asc&per_page=100`)).json<{ items?: SecurityIssue[] }>();
-  const issues = (data.items ?? []).sort((a, b) => codexPriority(a.title ?? "") - codexPriority(b.title ?? ""));
-  const handledRepos = new Set<string>();
-  const stats = { candidates: issues.length, dispatched: 0, exists: 0, busy: 0, errors: 0 };
-
-  for (const issue of issues) {
-    const repo = repoFromApiUrl(issue.repository_url);
-    const marker = skvallerbyttanMarker(issue.body ?? "");
-    if (!validOrgRepo(repo) || !marker || handledRepos.has(repo)) continue;
-    try {
-      const result = await requestCodexRemediation(token, repo, issue.number, marker);
-      stats[result] += 1;
-      handledRepos.add(repo);
-    } catch (error) {
-      stats.errors += 1;
-      console.error("skvallerbyttan Codex dispatch failed", { repo, issueNumber: issue.number, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  console.log("skvallerbyttan Codex queue complete", stats);
 }
 
 async function isMalware(token: string, repo: string, alertNumber: number): Promise<boolean> {
@@ -519,12 +452,6 @@ async function runBackfill(env: Env): Promise<void> {
   );
   console.log("skvallerbyttan backfill complete", { code, dependabot, secret });
   await runIssueReconciliation(token);
-  await runCodexQueue(token);
-}
-
-async function runQueueOnly(env: Env): Promise<void> {
-  if (!configured(env)) throw new Error("Skvallerbyttan Worker is not configured");
-  await runCodexQueue(await installationToken(env));
 }
 
 export default {
@@ -608,7 +535,6 @@ export default {
 
       const result = await createIssue(env, token, repo, issue);
       console.log("skvallerbyttan webhook issue result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result });
-      ctx.waitUntil(runCodexQueue(token).catch((error) => console.error("skvallerbyttan webhook Codex queue failed", error instanceof Error ? error.message : String(error))));
       return new Response(`${result}\n`, { status: result === "created" ? 201 : 200 });
     } catch (error) {
       console.error("skvallerbyttan webhook failed", { delivery, event, action, repo, error: error instanceof Error ? error.message : String(error) });
@@ -617,7 +543,6 @@ export default {
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    const task = event.cron === "*/5 * * * *" ? runQueueOnly(env) : runBackfill(env);
-    ctx.waitUntil(task.catch((error) => console.error("skvallerbyttan scheduled automation failed", { cron: event.cron, error: error instanceof Error ? error.message : String(error) })));
+    ctx.waitUntil(runBackfill(env).catch((error) => console.error("skvallerbyttan scheduled automation failed", { cron: event.cron, error: error instanceof Error ? error.message : String(error) })));
   },
 } satisfies ExportedHandler<Env>;
