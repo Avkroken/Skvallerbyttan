@@ -4,6 +4,7 @@ import { shouldClaimOperation, type OperationRecord } from "./idempotency";
 import { runtimeReady } from "./runtime-health";
 import {
   declaredWebhookBodyTooLarge,
+  githubDeliveryId,
   readWebhookBody,
   verifyWebhookSignature,
   WebhookBodyTooLargeError,
@@ -88,15 +89,16 @@ async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContex
     throw error;
   }
 
-  const delivery = req.headers.get("x-github-delivery") ?? "";
+  const delivery = githubDeliveryId(req.headers);
   const event = req.headers.get("x-github-event") ?? "";
   if (!(await verifyWebhookSignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
-    console.warn("skvallerbyttan webhook bad signature", { delivery, event });
+    console.warn("skvallerbyttan webhook bad signature", { delivery: delivery ?? "", event });
     return new Response("Bad signature", { status: 401 });
   }
 
   if (!delivery) {
-    return handleVerifiedWebhook(raw, req.headers, env as Parameters<typeof handleVerifiedWebhook>[2], ctx);
+    console.warn("skvallerbyttan webhook missing delivery id", { event });
+    return new Response("Missing delivery id", { status: 400 });
   }
 
   const lock = env.SKVALLERBYTTAN_ISSUE_LOCK.getByName(`delivery:${delivery}`);

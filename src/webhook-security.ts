@@ -18,6 +18,11 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+export function githubDeliveryId(headers: Headers): string | null {
+  const delivery = headers.get("x-github-delivery")?.trim() ?? "";
+  return delivery || null;
+}
+
 export function declaredWebhookBodyTooLarge(contentLength: string | null): boolean {
   if (contentLength === null) return false;
   const declaredLength = Number(contentLength);
