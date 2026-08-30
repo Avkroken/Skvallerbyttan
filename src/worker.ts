@@ -1,4 +1,11 @@
 import coreWorker, { handleVerifiedWebhook, SkvallerbyttanIssueLock as CoreIssueLock } from "./index";
+import {
+  emailOutboxName,
+  emailRetryDelayMs,
+  normalizeQueuedEmail,
+  type EmailOutboxRecord,
+  type QueuedEmail,
+} from "./email-outbox";
 import type { SkvallerbyttanBindings } from "./env";
 import { shouldClaimOperation, type OperationRecord } from "./idempotency";
 import { runtimeReady } from "./runtime-health";
@@ -11,6 +18,7 @@ import {
 } from "./webhook-security";
 
 type IssueSpec = { marker: string; title: string; body: string };
+type EmailSendInput = Parameters<SkvallerbyttanBindings["EMAIL"]["send"]>[0];
 type Env = SkvallerbyttanBindings & {
   SKVALLERBYTTAN_ISSUE_LOCK: DurableObjectNamespace<SkvallerbyttanIssueLock>;
 };
@@ -58,6 +66,34 @@ export class SkvallerbyttanIssueLock extends CoreIssueLock {
 
   async releaseDelivery(): Promise<void> {
     await this.release("delivery");
+  }
+
+  async queueEmail(message: QueuedEmail): Promise<void> {
+    const existing = await this.ctx.storage.get<EmailOutboxRecord>("email");
+    if (existing) return;
+    await this.ctx.storage.put("email", { message, attempts: 0 } satisfies EmailOutboxRecord);
+    await this.ctx.storage.setAlarm(Date.now() + 1_000);
+  }
+
+  async alarm(): Promise<void> {
+    const record = await this.ctx.storage.get<EmailOutboxRecord>("email");
+    if (!record) return;
+
+    try {
+      await this.env.EMAIL.send(record.message as EmailSendInput);
+      await this.ctx.storage.deleteAll();
+      console.log("skvallerbyttan queued email sent", { attempts: record.attempts + 1 });
+    } catch (error) {
+      const attempts = record.attempts + 1;
+      const delayMs = emailRetryDelayMs(attempts);
+      await this.ctx.storage.put("email", { ...record, attempts } satisfies EmailOutboxRecord);
+      await this.ctx.storage.setAlarm(Date.now() + delayMs);
+      console.error("skvallerbyttan queued email retry scheduled", {
+        attempts,
+        delayMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 
@@ -107,11 +143,19 @@ async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContex
     return new Response("duplicate\n");
   }
 
+  const queuedEmailBinding = {
+    async send(message: EmailSendInput): Promise<void> {
+      const outbox = env.SKVALLERBYTTAN_ISSUE_LOCK.getByName(emailOutboxName(delivery));
+      await outbox.queueEmail(normalizeQueuedEmail(message));
+    },
+  } as SkvallerbyttanBindings["EMAIL"];
+  const handlerEnv = { ...env, EMAIL: queuedEmailBinding };
+
   try {
     const response = await handleVerifiedWebhook(
       raw,
       req.headers,
-      env as Parameters<typeof handleVerifiedWebhook>[2],
+      handlerEnv as Parameters<typeof handleVerifiedWebhook>[2],
       ctx,
     );
     if (response.status >= 500) await lock.releaseDelivery();
