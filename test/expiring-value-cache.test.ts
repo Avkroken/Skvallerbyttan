@@ -28,6 +28,15 @@ test("ExpiringValueCache reloads inside the safety window", async () => {
   assert.equal(calls, 2);
 });
 
+test("ExpiringValueCache rejects a newly loaded value inside the safety window", async () => {
+  const cache = new ExpiringValueCache<string>(60_000);
+
+  await assert.rejects(
+    () => cache.get(async () => ({ value: "near-expiry", expiresAt: 150_000 }), 100_000),
+    /safety window/,
+  );
+});
+
 test("ExpiringValueCache shares an in-flight load", async () => {
   let calls = 0;
   let resolveLoad: ((value: { value: string; expiresAt: number }) => void) | undefined;
