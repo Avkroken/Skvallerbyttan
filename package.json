@@ -6,7 +6,8 @@
     "deploy": "wrangler deploy",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "validate:bindings": "node scripts/validate-bindings.mjs"
+    "validate:bindings": "node scripts/validate-bindings.mjs",
+    "validate:worker": "wrangler deploy --dry-run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260814.1",
