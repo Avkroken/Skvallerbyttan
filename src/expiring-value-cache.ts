@@ -7,10 +7,14 @@ export class ExpiringValueCache<T> {
   private current: ExpiringValue<T> | undefined;
   private inFlight: Promise<ExpiringValue<T>> | undefined;
 
-  constructor(private readonly safetyWindowMs = 60_000) {}
+  constructor(
+    private readonly safetyWindowMs = 60_000,
+    private readonly now = (): number => Date.now(),
+  ) {}
 
-  async get(load: () => Promise<ExpiringValue<T>>, now = Date.now()): Promise<T> {
-    if (this.current && this.current.expiresAt - this.safetyWindowMs > now) {
+  async get(load: () => Promise<ExpiringValue<T>>, now?: number): Promise<T> {
+    const startedAt = now ?? this.now();
+    if (this.current && this.current.expiresAt - this.safetyWindowMs > startedAt) {
       return this.current.value;
     }
 
@@ -22,7 +26,8 @@ export class ExpiringValueCache<T> {
 
     try {
       const loaded = await pending;
-      if (!Number.isFinite(loaded.expiresAt) || loaded.expiresAt - this.safetyWindowMs <= now) {
+      const completedAt = now ?? this.now();
+      if (!Number.isFinite(loaded.expiresAt) || loaded.expiresAt - this.safetyWindowMs <= completedAt) {
         throw new Error("Loaded value expires inside safety window");
       }
       this.current = loaded;
