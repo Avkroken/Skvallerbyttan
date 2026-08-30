@@ -1,0 +1,8 @@
+export interface SkvallerbyttanBindings {
+  SKVALLERBYTTAN_WEBHOOK_SECRET: string;
+  SKVALLERBYTTAN_CLIENT_ID: string;
+  SKVALLERBYTTAN_APP_PRIVATE_KEY: string;
+  SKVALLERBYTTAN_EMAIL_TO: string;
+  SKVALLERBYTTAN_EMAIL_FROM: string;
+  EMAIL: SendEmail;
+}
