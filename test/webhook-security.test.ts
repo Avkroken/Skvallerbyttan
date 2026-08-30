@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   MAX_WEBHOOK_BYTES,
   declaredWebhookBodyTooLarge,
+  githubDeliveryId,
   readWebhookBody,
   verifyWebhookSignature,
   webhookBodyTooLarge,
@@ -23,6 +24,12 @@ test("rejects missing or malformed webhook signatures", async () => {
   assert.equal(await verifyWebhookSignature("hello", null, "secret"), false);
   assert.equal(await verifyWebhookSignature("hello", "88aab3ede8d3adf94d26ab90d3bafd4a2083070c3bcce9c014ee04a443847c0b", "secret"), false);
   assert.equal(await verifyWebhookSignature("hello", VALID_HELLO_SIGNATURE, ""), false);
+});
+
+test("normalizes GitHub delivery ids and rejects missing values", () => {
+  assert.equal(githubDeliveryId(new Headers({ "x-github-delivery": " 1234-abcd " })), "1234-abcd");
+  assert.equal(githubDeliveryId(new Headers({ "x-github-delivery": "   " })), null);
+  assert.equal(githubDeliveryId(new Headers()), null);
 });
 
 test("rejects declared payloads above the limit", () => {
