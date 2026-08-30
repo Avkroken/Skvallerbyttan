@@ -1,4 +1,13 @@
-const LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"];
+const NPM_LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"];
+const LOCKFILES_BY_ECOSYSTEM = {
+  composer: ["composer.lock"],
+  go: ["go.sum"],
+  npm: NPM_LOCKFILES,
+  nuget: ["packages.lock.json"],
+  pub: ["pubspec.lock"],
+  rubygems: ["Gemfile.lock"],
+  rust: ["Cargo.lock"],
+};
 
 function normalizePath(value) {
   return String(value || "").replace(/^\.\//, "").replace(/^\/+/, "");
@@ -10,12 +19,23 @@ function parseAlertReference(issueBody) {
   return { type: match[1], number: Number(match[2]) };
 }
 
-function dependabotPaths(manifestPath) {
+function pipLockfiles(manifest) {
+  const basename = manifest.slice(manifest.lastIndexOf("/") + 1);
+  if (basename === "Pipfile") return ["Pipfile.lock"];
+  if (basename === "pyproject.toml") return ["poetry.lock", "uv.lock"];
+  return [];
+}
+
+function dependabotPaths(manifestPath, ecosystem) {
   const manifest = normalizePath(manifestPath);
   if (!manifest) return [];
   const slash = manifest.lastIndexOf("/");
   const directory = slash >= 0 ? manifest.slice(0, slash + 1) : "";
-  return [manifest, ...LOCKFILES.map((name) => `${directory}${name}`)];
+  const normalizedEcosystem = String(ecosystem || "").toLowerCase();
+  const lockfiles = normalizedEcosystem === "pip"
+    ? pipLockfiles(manifest)
+    : (LOCKFILES_BY_ECOSYSTEM[normalizedEcosystem] || []);
+  return [manifest, ...lockfiles.map((name) => `${directory}${name}`)];
 }
 
 function expectedPaths(reference, alert, locations = []) {
@@ -26,7 +46,10 @@ function expectedPaths(reference, alert, locations = []) {
   }
 
   if (reference.type === "dependabot") {
-    return dependabotPaths(alert?.dependency?.manifest_path);
+    return dependabotPaths(
+      alert?.dependency?.manifest_path,
+      alert?.dependency?.package?.ecosystem,
+    );
   }
 
   if (reference.type === "secret-scanning") {
@@ -77,6 +100,7 @@ function evaluateRemediationScope({ issueBody, alert, locations = [], files = []
 }
 
 module.exports = {
+  dependabotPaths,
   evaluateRemediationScope,
   expectedPaths,
   normalizePath,

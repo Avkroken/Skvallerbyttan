@@ -38,14 +38,51 @@ test("accepts a rename of the Code Scanning source path", () => {
   assert.equal(result.matchedPath, "src/auth.ts");
 });
 
-test("allows Dependabot manifest or sibling lockfile changes", () => {
+test("allows npm manifest or sibling npm lockfile changes", () => {
   const base = {
     issueBody: "<!-- skvallerbyttan-alert:dependabot:9 -->",
-    alert: { state: "open", dependency: { manifest_path: "web/package.json" } },
+    alert: { state: "open", dependency: { manifest_path: "web/package.json", package: { ecosystem: "npm" } } },
   };
   assert.equal(evaluateRemediationScope({ ...base, files: [{ filename: "web/package.json" }] }).eligible, true);
   assert.equal(evaluateRemediationScope({ ...base, files: [{ filename: "web/package-lock.json" }] }).eligible, true);
   assert.equal(evaluateRemediationScope({ ...base, files: [{ filename: "src/index.ts" }] }).eligible, false);
+});
+
+test("accepts ecosystem-specific Dependabot lockfiles", () => {
+  const cases = [
+    { ecosystem: "composer", manifest: "api/composer.json", lockfile: "api/composer.lock" },
+    { ecosystem: "rust", manifest: "native/Cargo.toml", lockfile: "native/Cargo.lock" },
+    { ecosystem: "pub", manifest: "mobile/pubspec.yaml", lockfile: "mobile/pubspec.lock" },
+    { ecosystem: "rubygems", manifest: "app/Gemfile", lockfile: "app/Gemfile.lock" },
+    { ecosystem: "go", manifest: "service/go.mod", lockfile: "service/go.sum" },
+    { ecosystem: "nuget", manifest: "dotnet/app.csproj", lockfile: "dotnet/packages.lock.json" },
+    { ecosystem: "pip", manifest: "python/Pipfile", lockfile: "python/Pipfile.lock" },
+    { ecosystem: "pip", manifest: "python/pyproject.toml", lockfile: "python/poetry.lock" },
+  ];
+
+  for (const current of cases) {
+    const result = evaluateRemediationScope({
+      issueBody: "<!-- skvallerbyttan-alert:dependabot:9 -->",
+      alert: {
+        state: "open",
+        dependency: { manifest_path: current.manifest, package: { ecosystem: current.ecosystem } },
+      },
+      files: [{ filename: current.lockfile }],
+    });
+    assert.equal(result.eligible, true);
+  }
+});
+
+test("does not accept an unrelated npm lockfile for non-npm Dependabot alerts", () => {
+  const result = evaluateRemediationScope({
+    issueBody: "<!-- skvallerbyttan-alert:dependabot:9 -->",
+    alert: {
+      state: "open",
+      dependency: { manifest_path: "python/requirements.txt", package: { ecosystem: "pip" } },
+    },
+    files: [{ filename: "python/package-lock.json" }],
+  });
+  assert.equal(result.eligible, false);
 });
 
 test("requires Secret Scanning commit locations to change", () => {
