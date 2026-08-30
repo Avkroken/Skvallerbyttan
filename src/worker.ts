@@ -144,9 +144,10 @@ async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContex
   }
 
   const queuedEmailBinding = {
-    async send(message: EmailSendInput): Promise<void> {
+    async send(message: EmailSendInput) {
       const outbox = env.SKVALLERBYTTAN_ISSUE_LOCK.getByName(emailOutboxName(delivery));
       await outbox.queueEmail(normalizeQueuedEmail(message));
+      return { messageId: `queued:${delivery}` };
     },
   } as SkvallerbyttanBindings["EMAIL"];
   const handlerEnv = { ...env, EMAIL: queuedEmailBinding };
