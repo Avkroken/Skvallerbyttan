@@ -32,6 +32,12 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
+      - name: Hämta dispatcher-policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
       - name: Reconcile remediation PRs and dispatch safely
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
@@ -40,6 +46,7 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
+            const { evaluateRemediationScope, parseAlertReference } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/remediation-scope.cjs`);
             const org = context.repo.owner;
             const activeMarker = '<!-- skvallerbyttan-remediation -->';
             const connectorLogin = 'chatgpt-codex-connector[bot]';
@@ -70,6 +77,37 @@ jobs:
               const text = await response.text();
               if (!response.ok) throw new Error(`user GitHub API ${response.status}: ${text.slice(0, 500)}`);
               return text ? JSON.parse(text) : null;
+            }
+
+            async function remediationScope(owner, repo, issueNumber, files) {
+              const issue = (await github.rest.issues.get({ owner, repo, issue_number: issueNumber })).data;
+              const issueBody = issue.body || '';
+              const reference = parseAlertReference(issueBody);
+              if (!reference) {
+                return evaluateRemediationScope({ issueBody, alert: {}, files });
+              }
+
+              try {
+                let alert;
+                let locations = [];
+                if (reference.type === 'code-scanning') {
+                  alert = await userApi(`/repos/${owner}/${repo}/code-scanning/alerts/${reference.number}`);
+                } else if (reference.type === 'dependabot') {
+                  alert = await userApi(`/repos/${owner}/${repo}/dependabot/alerts/${reference.number}`);
+                } else if (reference.type === 'secret-scanning') {
+                  alert = await userApi(`/repos/${owner}/${repo}/secret-scanning/alerts/${reference.number}`);
+                  locations = await userApi(`/repos/${owner}/${repo}/secret-scanning/alerts/${reference.number}/locations?per_page=100`) || [];
+                }
+                return evaluateRemediationScope({ issueBody, alert: alert || {}, locations, files });
+              } catch (error) {
+                return {
+                  eligible: false,
+                  reason: 'alert-verification-failed',
+                  reference,
+                  expectedPaths: [],
+                  verificationError: String(error.message || error).slice(0, 500),
+                };
+              }
             }
 
             async function ensureComment(owner, repo, issueNumber, marker, body) {
@@ -142,7 +180,7 @@ jobs:
                   repo,
                   pr.number,
                   marker,
-                  `Seed-filen är borta och PR:n innehåller verkliga ändringar, men GitHub nekade att armera auto-merge: ${String(error.message || error).slice(0, 500)}. Direkt merge används inte som fallback; PR:n lämnas öppen för normal repository-policy.`
+                  `Seed-filen är borta och alert-relevant scope är verifierad, men GitHub nekade att armera auto-merge: ${String(error.message || error).slice(0, 500)}. Direkt merge används inte som fallback; PR:n lämnas öppen för normal repository-policy.`
                 );
                 core.warning(`${owner}/${repo}#${pr.number}: auto-merge kunde inte armeras: ${error.message}`);
                 return false;
@@ -275,6 +313,22 @@ jobs:
                   continue;
                 }
 
+                const scope = await remediationScope(owner, repo, issueNumber, realFiles);
+                if (!scope.eligible) {
+                  await keepDraft(pr);
+                  const expected = (scope.expectedPaths || []).slice(0, 8).map(path => `\`${path}\``).join(', ');
+                  const verification = scope.verificationError ? ` Verifieringsfel: ${scope.verificationError}` : '';
+                  await ensureComment(
+                    owner,
+                    repo,
+                    pr.number,
+                    `<!-- skvallerbyttan-remediation-scope-blocked:${issueNumber} -->`,
+                    `Auto-merge är avstängd eftersom PR:n inte har verifierad alert-relevant scope (${scope.reason}). ${expected ? `Förväntad path: ${expected}.` : 'Ingen verifierbar alert-path kunde fastställas.'}${verification} PR:n förblir draft för manuell eller fortsatt Codex-remediation.`
+                  );
+                  core.warning(`${repository.full_name}#${pr.number}: remediation scope blockerad (${scope.reason}).`);
+                  continue;
+                }
+
                 const armed = await markReadyAndArm(owner, repo, pr, issueNumber);
                 if (armed) {
                   await ensureComment(
@@ -282,7 +336,7 @@ jobs:
                     repo,
                     pr.number,
                     `<!-- skvallerbyttan-codex-finalized:${issueNumber} -->`,
-                    'Seed-filen är borttagen och PR:n innehåller verkliga ändringar. PR:n är ready-for-review och squash auto-merge är armerad; ordinarie required CI och review-thread-resolution är fortsatt blockerande.'
+                    `Seed-filen är borttagen och alert-relevant path \`${scope.matchedPath}\` är ändrad. PR:n är ready-for-review och squash auto-merge är armerad; ordinarie required CI och review-thread-resolution är fortsatt blockerande.`
                   );
                 }
               }
