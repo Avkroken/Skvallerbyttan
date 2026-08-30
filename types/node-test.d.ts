@@ -1,3 +1,7 @@
+interface ImportMeta {
+  readonly url: string;
+}
+
 declare module "node:assert/strict" {
   type RejectsBlock = () => unknown | Promise<unknown>;
 
