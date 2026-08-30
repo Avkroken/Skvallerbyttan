@@ -1,5 +1,6 @@
 import coreWorker, { SkvallerbyttanIssueLock as CoreIssueLock } from "./index";
 import { shouldClaimOperation, type OperationRecord } from "./idempotency";
+import { runtimeReady } from "./runtime-health";
 import { declaredWebhookBodyTooLarge, verifyWebhookSignature, webhookBodyTooLarge } from "./webhook-security";
 
 type IssueSpec = { marker: string; title: string; body: string };
@@ -64,6 +65,14 @@ export class SkvallerbyttanIssueLock extends CoreIssueLock {
 
 async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const path = new URL(req.url).pathname;
+  if (req.method === "GET" && path === "/ready") {
+    const ok = runtimeReady(env);
+    return Response.json(
+      { ok, service: "skvallerbyttan", check: "configuration" },
+      { status: ok ? 200 : 503 },
+    );
+  }
+
   if (req.method !== "POST" || path !== "/webhook") {
     return coreWorker.fetch(req, env as Parameters<typeof coreWorker.fetch>[1], ctx);
   }
