@@ -1,22 +1,27 @@
 import { DurableObject } from "cloudflare:workers";
 import { retryOnceAfterUnauthorized } from "./auth-retry";
+import type { SkvallerbyttanBindings } from "./env";
 import { ExpiringValueCache } from "./expiring-value-cache";
 import { MalwareAlertCache } from "./malware-alert-cache";
 import { alertApiPath, alertIsRemediated, alertReference, assignmentAllowed, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
+import { verifyWebhookSignature } from "./webhook-security";
 
-interface Env {
-  SKVALLERBYTTAN_WEBHOOK_SECRET: string;
-  SKVALLERBYTTAN_CLIENT_ID: string;
-  SKVALLERBYTTAN_APP_PRIVATE_KEY: string;
-  SKVALLERBYTTAN_EMAIL_TO: string;
-  SKVALLERBYTTAN_EMAIL_FROM: string;
-  EMAIL: SendEmail;
+type Env = SkvallerbyttanBindings & {
   SKVALLERBYTTAN_ISSUE_LOCK: DurableObjectNamespace<SkvallerbyttanIssueLock>;
-}
+};
 
 type IssueSpec = { marker: string; title: string; body: string };
 type BackfillStats = { scanned: number; eligible: number; created: number; exists: number; errors: number };
-type SecurityIssue = { assignees?: Array<{ login?: string }>; body?: string; number: number; repository_url: string; state?: string; title?: string };
+type SecurityIssue = {
+  assignees?: Array<{ login?: string }>;
+  body?: string;
+  number: number;
+  pull_request?: unknown;
+  repository_url: string;
+  state?: string;
+  title?: string;
+};
+type RepositorySummary = { archived?: boolean; full_name?: string };
 
 const ORG = "Avkroken";
 const API_VERSION = "2022-11-28";
@@ -25,17 +30,6 @@ const SUPPORTED_EVENTS = new Set(["code_scanning_alert", "dependabot_alert", "se
 const SECURITY_ISSUE_ASSIGNEE = "blixten85";
 const ASSIGNMENT_PAUSED_REPOS = new Set(["avkroken/produkter"]);
 const installationTokenCache = new ExpiringValueCache<string>();
-
-function hex(buffer: ArrayBuffer): string {
-  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
 
 function base64url(input: string | ArrayBuffer): string {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : new Uint8Array(input);
@@ -80,13 +74,6 @@ function pemPkcs8Bytes(pem: string): ArrayBuffer {
 
 function configured(env: Env): boolean {
   return Boolean(env.SKVALLERBYTTAN_WEBHOOK_SECRET && env.SKVALLERBYTTAN_CLIENT_ID && env.SKVALLERBYTTAN_APP_PRIVATE_KEY);
-}
-
-async function verifySignature(raw: string, signature: string | null, secret: string): Promise<boolean> {
-  if (!secret || !signature?.startsWith("sha256=")) return false;
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
-  return safeEqual(signature, `sha256=${hex(digest)}`);
 }
 
 async function appJwt(env: Env): Promise<string> {
@@ -301,14 +288,23 @@ async function reconcileIssue(env: Env, issue: SecurityIssue): Promise<"closed" 
 }
 
 async function findSecurityIssues(env: Env): Promise<SecurityIssue[]> {
+  const repositories = await listAll<RepositorySummary>(
+    env,
+    `/orgs/${encodeURIComponent(ORG)}/repos?type=all&per_page=100`,
+  );
   const issues: SecurityIssue[] = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const query = `org:${ORG} is:issue in:body "skvallerbyttan-alert:"`;
-    const data = await (await github(env, `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=asc&per_page=100&page=${page}`)).json<{ items?: SecurityIssue[] }>();
-    const batch = data.items ?? [];
-    issues.push(...batch);
-    if (batch.length < 100) break;
+
+  for (const repository of repositories) {
+    const repo = String(repository.full_name ?? "");
+    if (repository.archived || !validOrgRepo(repo)) continue;
+
+    const repoIssues = await listAll<SecurityIssue>(
+      env,
+      `/repos/${repo}/issues?state=all&sort=created&direction=asc&per_page=100`,
+    );
+    issues.push(...repoIssues.filter((issue) => !issue.pull_request && (issue.body ?? "").includes("skvallerbyttan-alert:")));
   }
+
   return issues;
 }
 
@@ -496,6 +492,76 @@ async function runBackfill(env: Env): Promise<void> {
   await runIssueReconciliation(env);
 }
 
+export async function handleVerifiedWebhook(
+  raw: string,
+  headers: Headers,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const delivery = headers.get("x-github-delivery") ?? "";
+  const event = headers.get("x-github-event") ?? "";
+
+  if (event === "ping") {
+    console.log("skvallerbyttan webhook ping", { delivery });
+    ctx.waitUntil(runBackfill(env).catch((error) => console.error("skvallerbyttan ping backfill failed", error instanceof Error ? error.message : String(error))));
+    return new Response("pong\n");
+  }
+
+  let payload: any;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    console.warn("skvallerbyttan webhook bad json", { delivery, event });
+    return new Response("Bad JSON", { status: 400 });
+  }
+
+  const repo = String(payload.repository?.full_name ?? "");
+  const action = String(payload.action ?? "");
+  console.log("skvallerbyttan webhook received", { delivery, event, action, repo });
+
+  if (!SUPPORTED_EVENTS.has(event)) {
+    console.log("skvallerbyttan webhook ignored unsupported event", { delivery, event, action, repo });
+    return new Response("ignored\n", { status: 202 });
+  }
+  if (!validOrgRepo(repo)) return new Response("Wrong organization", { status: 403 });
+
+  const alert = payload.alert ?? {};
+  const shouldSendSecretEmail = event === "secret_scanning_alert" && (action === "created" || action === "reopened");
+
+  try {
+    const webhookAlert = alertReference(`skvallerbyttan-alert:${event.replaceAll("_alert", "").replaceAll("_", "-")}:${alert.number}`);
+    const webhookState = String(alert.state ?? (event === "secret_scanning_alert" && action === "resolved" ? "resolved" : "")).toLowerCase();
+    if (webhookAlert && alertIsRemediated(webhookAlert, webhookState)) {
+      const query = `repo:${repo} is:issue is:open in:body "skvallerbyttan-alert:${webhookAlert.type}:${webhookAlert.number}"`;
+      const data = await (await github(env, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ items?: SecurityIssue[] }>();
+      const issueToClose = data.items?.[0];
+      if (issueToClose) await closeRemediatedIssue(env, repo, issueToClose.number, webhookAlert, webhookState);
+      console.log("skvallerbyttan webhook reconciliation result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result: issueToClose ? "closed" : "missing" });
+      return new Response(`${issueToClose ? "closed" : "missing"}\n`);
+    }
+
+    const issue = event === "code_scanning_alert"
+      ? codeScanningIssue(alert)
+      : event === "dependabot_alert"
+        ? await dependabotIssue(env, repo, alert)
+        : (action === "created" || action === "reopened") ? secretScanningIssue({ ...alert, state: "open" }) : null;
+
+    if (!issue) {
+      if (shouldSendSecretEmail) await sendSecretScanningEmail(env, repo, alert, action, delivery);
+      console.log("skvallerbyttan webhook ignored alert", { delivery, event, action, repo, alertNumber: alert.number ?? null });
+      return new Response("ignored\n", { status: 202 });
+    }
+
+    const result = await createIssue(env, repo, issue);
+    if (shouldSendSecretEmail) await sendSecretScanningEmail(env, repo, alert, action, delivery);
+    console.log("skvallerbyttan webhook issue result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result });
+    return new Response(`${result}\n`, { status: result === "created" ? 201 : 200 });
+  } catch (error) {
+    console.error("skvallerbyttan webhook failed", { delivery, event, action, repo, error: error instanceof Error ? error.message : String(error) });
+    return new Response("Upstream error", { status: 502 });
+  }
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const path = new URL(req.url).pathname;
@@ -509,78 +575,12 @@ export default {
     const raw = await req.text();
     const delivery = req.headers.get("x-github-delivery") ?? "";
     const event = req.headers.get("x-github-event") ?? "";
-
-    if (!(await verifySignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
+    if (!(await verifyWebhookSignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
       console.warn("skvallerbyttan webhook bad signature", { delivery, event });
       return new Response("Bad signature", { status: 401 });
     }
 
-    if (event === "ping") {
-      console.log("skvallerbyttan webhook ping", { delivery });
-      ctx.waitUntil(runBackfill(env).catch((error) => console.error("skvallerbyttan ping backfill failed", error instanceof Error ? error.message : String(error))));
-      return new Response("pong\n");
-    }
-
-    let payload: any;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      console.warn("skvallerbyttan webhook bad json", { delivery, event });
-      return new Response("Bad JSON", { status: 400 });
-    }
-
-    const repo = String(payload.repository?.full_name ?? "");
-    const action = String(payload.action ?? "");
-    console.log("skvallerbyttan webhook received", { delivery, event, action, repo });
-
-    if (!SUPPORTED_EVENTS.has(event)) {
-      console.log("skvallerbyttan webhook ignored unsupported event", { delivery, event, action, repo });
-      return new Response("ignored\n", { status: 202 });
-    }
-    if (!validOrgRepo(repo)) return new Response("Wrong organization", { status: 403 });
-
-    const alert = payload.alert ?? {};
-    if (event === "secret_scanning_alert" && (action === "created" || action === "reopened")) {
-      ctx.waitUntil(sendSecretScanningEmail(env, repo, alert, action, delivery).catch((error) => {
-        console.error("skvallerbyttan secret alert email failed", {
-          delivery,
-          action,
-          repo,
-          alertNumber: alert.number ?? null,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }));
-    }
-
-    try {
-      const webhookAlert = alertReference(`skvallerbyttan-alert:${event.replaceAll("_alert", "").replaceAll("_", "-")}:${alert.number}`);
-      const webhookState = String(alert.state ?? (event === "secret_scanning_alert" && action === "resolved" ? "resolved" : "")).toLowerCase();
-      if (webhookAlert && alertIsRemediated(webhookAlert, webhookState)) {
-        const query = `repo:${repo} is:issue is:open in:body "skvallerbyttan-alert:${webhookAlert.type}:${webhookAlert.number}"`;
-        const data = await (await github(env, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ items?: SecurityIssue[] }>();
-        const issueToClose = data.items?.[0];
-        if (issueToClose) await closeRemediatedIssue(env, repo, issueToClose.number, webhookAlert, webhookState);
-        console.log("skvallerbyttan webhook reconciliation result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result: issueToClose ? "closed" : "missing" });
-        return new Response(`${issueToClose ? "closed" : "missing"}\n`);
-      }
-      const issue = event === "code_scanning_alert"
-        ? codeScanningIssue(alert)
-        : event === "dependabot_alert"
-          ? await dependabotIssue(env, repo, alert)
-          : (action === "created" || action === "reopened") ? secretScanningIssue({ ...alert, state: "open" }) : null;
-
-      if (!issue) {
-        console.log("skvallerbyttan webhook ignored alert", { delivery, event, action, repo, alertNumber: alert.number ?? null });
-        return new Response("ignored\n", { status: 202 });
-      }
-
-      const result = await createIssue(env, repo, issue);
-      console.log("skvallerbyttan webhook issue result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result });
-      return new Response(`${result}\n`, { status: result === "created" ? 201 : 200 });
-    } catch (error) {
-      console.error("skvallerbyttan webhook failed", { delivery, event, action, repo, error: error instanceof Error ? error.message : String(error) });
-      return new Response("Upstream error", { status: 502 });
-    }
+    return handleVerifiedWebhook(raw, req.headers, env, ctx);
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
