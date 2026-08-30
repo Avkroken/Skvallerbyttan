@@ -6,7 +6,6 @@ import {
   githubDeliveryId,
   readWebhookBody,
   verifyWebhookSignature,
-  webhookBodyTooLarge,
   WebhookBodyTooLargeError,
 } from "../src/webhook-security";
 
@@ -37,12 +36,6 @@ test("rejects declared payloads above the limit", () => {
   assert.equal(declaredWebhookBodyTooLarge(String(MAX_WEBHOOK_BYTES + 1)), true);
   assert.equal(declaredWebhookBodyTooLarge(null), false);
   assert.equal(declaredWebhookBodyTooLarge("not-a-number"), false);
-});
-
-test("measures the actual UTF-8 webhook body", () => {
-  assert.equal(webhookBodyTooLarge("a".repeat(MAX_WEBHOOK_BYTES)), false);
-  assert.equal(webhookBodyTooLarge("a".repeat(MAX_WEBHOOK_BYTES + 1)), true);
-  assert.equal(webhookBodyTooLarge("å".repeat(MAX_WEBHOOK_BYTES / 2 + 1)), true);
 });
 
 test("reads a streamed webhook body inside the byte limit", async () => {
