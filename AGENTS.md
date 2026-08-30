@@ -6,7 +6,8 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 
 `Skvallerbyttan` är Avkrokens centrala säkerhetsalert- och remediationtjänst.
 
-- `src/index.ts` tar emot och verifierar GitHub organization-webhooks, backfillar alerts, reconciliar security Issues och kan markera dem som köade för remediation.
+- `src/worker.ts` är Worker-entrypoint och ansvarar för webhook-gräns, persistent idempotens och runtime-readiness.
+- `src/index.ts` hanterar GitHub organization-webhooks, backfillar alerts och reconciliar security Issues.
 - `.github/workflows/codex-security-dispatch.yml` är den enda GitHub-side writer som skapar automatiska Codex-remediation-branches och PR:er i organisationen.
 - `wrangler.jsonc` beskriver Worker-bindings, routes och Worker-cron.
 - Credentials och privata nycklar får aldrig committas eller loggas.
@@ -44,15 +45,17 @@ Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren i
 - Seed-only PR:er ska vara draft och får inte ha auto-merge armerad.
 - `CODEX_TRIGGER_TOKEN` ska verifieras mot `CODEX_TRIGGER_LOGIN`; utan giltig användarcredential failar ny dispatch stängt.
 - Codex-triggern ska skrivas med den verifierade användarcredentialen; bot-skrivna `@codex`-mentions är inte ett giltigt delegationskontrakt.
-- PR:n får bli ready först när seed-filen är borttagen och minst en verklig filändring finns.
-- När PR:n blir ready ska auto-merge armeras. Om GitHub nekar därför att PR:n redan är `clean` ska PR:n lämnas öppen och blockeraren dokumenteras; direkt merge får inte användas automatiskt.
+- PR:n får inte bli ready förrän seed-filen är borttagen, minst en verklig filändring finns och den ursprungliga GitHub-alerten fortfarande är öppen med verifierad alert-relevant scope.
+- Code Scanning kräver ändring av alertens source path. Dependabot kräver manifest eller relevant sibling lockfile. Secret Scanning kräver ändring av en verifierad commit-location. Oförifierbar scope eller API-/permissionfel failar stängt.
+- När scope-gaten är uppfylld ska auto-merge armeras. Om GitHub nekar ska PR:n lämnas öppen och blockeraren dokumenteras; direkt merge får inte användas automatiskt.
 - Branch protection, required CI och review-resolution i målrepositoryt är alltid auktoritativa.
 
 ## Security alert-ingestion
 
 - GitHub organization-webhooken är eventkällan.
 - Worker-signaturen `X-Hub-Signature-256` ska verifieras före payloadbehandling.
-- Backfill/reconciliation ska vara idempotent.
+- Webhook-body ska begränsas och signerade `X-GitHub-Delivery` ska dedupliceras persistent.
+- Alert→Issue-skapande och backfill/reconciliation ska vara idempotenta även över Worker-restarts.
 - Dismissed alerts behandlas inte som verifierade fixes.
 - Secret Scanning-innehåll får aldrig kopieras till Issue- eller e-posttext.
 - Per-repository Code Scanning-snapshotfiler ska inte användas som separat datakälla; Skvallerbyttan läser GitHubs alert-API centralt.
@@ -60,7 +63,7 @@ Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren i
 ## GitHub Actions
 
 - `.github/workflows/ci.yml` producerar live-required context `CI / required`.
-- Required CI kör tester, typecheck, binding-validering och blockerar kvarvarande `.github/codex-dispatch/issue-*.md`.
+- Required CI kör tester, typecheck, binding-validering, Wrangler dry-run och blockerar kvarvarande `.github/codex-dispatch/issue-*.md`.
 - `.github/workflows/osv-scanner.yml` är kompletterande säkerhetsverifiering och är inte en required context.
 - `pr-watchdog`, `sync-pool`, `scope-policy`, repository-local remediation-observer, bot-baserad review-auto-fix och Code Scanning-snapshot ska inte återinföras utan ett nytt verifierat behov och motsvarande live ruleset/design.
 
