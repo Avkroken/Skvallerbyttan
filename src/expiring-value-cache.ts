@@ -22,8 +22,8 @@ export class ExpiringValueCache<T> {
 
     try {
       const loaded = await pending;
-      if (!Number.isFinite(loaded.expiresAt) || loaded.expiresAt <= now) {
-        throw new Error("Loaded value is already expired");
+      if (!Number.isFinite(loaded.expiresAt) || loaded.expiresAt - this.safetyWindowMs <= now) {
+        throw new Error("Loaded value expires inside safety window");
       }
       this.current = loaded;
       return loaded.value;
