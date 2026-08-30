@@ -1,5 +1,22 @@
 const { evaluateRemediationScope, parseAlertReference } = require('./remediation-scope.cjs');
 
+function isSecurityIssue(item) {
+  return !item.pull_request && (item.body || '').includes('skvallerbyttan-alert:');
+}
+
+async function collectSecurityIssues(github, activeRepos) {
+  const issues = [];
+  for (const repository of activeRepos) {
+    const owner = repository.owner.login;
+    const repo = repository.name;
+    const repoIssues = await github.paginate(github.rest.issues.listForRepo, {
+      owner, repo, state: 'open', per_page: 100,
+    });
+    issues.push(...repoIssues.filter(isSecurityIssue));
+  }
+  return issues;
+}
+
 async function run({ github, context, core }) {
   const org = context.repo.owner;
   const activeMarker = '<!-- skvallerbyttan-remediation -->';
@@ -296,14 +313,7 @@ async function run({ github, context, core }) {
     }
   }
 
-  const search = await github.paginate(github.rest.search.issuesAndPullRequests, {
-    q: `org:${org} is:issue is:open in:body "skvallerbyttan-alert:"`,
-    sort: 'created',
-    order: 'asc',
-    per_page: 100,
-  });
-  const issues = search
-    .filter(item => !item.pull_request)
+  const issues = (await collectSecurityIssues(github, activeRepos))
     .sort((a, b) => priority(a.title || '') - priority(b.title || '') || a.number - b.number);
   const handledRepos = new Set();
 
@@ -421,4 +431,4 @@ async function run({ github, context, core }) {
   }
 }
 
-module.exports = { run };
+module.exports = { collectSecurityIssues, isSecurityIssue, run };
