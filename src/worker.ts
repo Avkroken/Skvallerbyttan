@@ -1,19 +1,18 @@
-import coreWorker, { SkvallerbyttanIssueLock as CoreIssueLock } from "./index";
+import coreWorker, { handleVerifiedWebhook, SkvallerbyttanIssueLock as CoreIssueLock } from "./index";
+import type { SkvallerbyttanBindings } from "./env";
 import { shouldClaimOperation, type OperationRecord } from "./idempotency";
 import { runtimeReady } from "./runtime-health";
-import { declaredWebhookBodyTooLarge, verifyWebhookSignature, webhookBodyTooLarge } from "./webhook-security";
+import {
+  declaredWebhookBodyTooLarge,
+  readWebhookBody,
+  verifyWebhookSignature,
+  WebhookBodyTooLargeError,
+} from "./webhook-security";
 
 type IssueSpec = { marker: string; title: string; body: string };
-
-interface Env {
-  SKVALLERBYTTAN_WEBHOOK_SECRET: string;
-  SKVALLERBYTTAN_CLIENT_ID: string;
-  SKVALLERBYTTAN_APP_PRIVATE_KEY: string;
-  SKVALLERBYTTAN_EMAIL_TO: string;
-  SKVALLERBYTTAN_EMAIL_FROM: string;
-  EMAIL: SendEmail;
+type Env = SkvallerbyttanBindings & {
   SKVALLERBYTTAN_ISSUE_LOCK: DurableObjectNamespace<SkvallerbyttanIssueLock>;
-}
+};
 
 export class SkvallerbyttanIssueLock extends CoreIssueLock {
   private async claim(key: string, now = Date.now()): Promise<boolean> {
@@ -79,26 +78,40 @@ async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContex
     return new Response("Payload too large", { status: 413 });
   }
 
-  const raw = await req.clone().text();
-  if (webhookBodyTooLarge(raw)) {
-    return new Response("Payload too large", { status: 413 });
-  }
-
-  if (!(await verifyWebhookSignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
-    return coreWorker.fetch(req, env as Parameters<typeof coreWorker.fetch>[1], ctx);
+  let raw: string;
+  try {
+    raw = await readWebhookBody(req.body);
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return new Response("Payload too large", { status: 413 });
+    }
+    throw error;
   }
 
   const delivery = req.headers.get("x-github-delivery") ?? "";
-  if (!delivery) return coreWorker.fetch(req, env as Parameters<typeof coreWorker.fetch>[1], ctx);
+  const event = req.headers.get("x-github-event") ?? "";
+  if (!(await verifyWebhookSignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
+    console.warn("skvallerbyttan webhook bad signature", { delivery, event });
+    return new Response("Bad signature", { status: 401 });
+  }
+
+  if (!delivery) {
+    return handleVerifiedWebhook(raw, req.headers, env as Parameters<typeof handleVerifiedWebhook>[2], ctx);
+  }
 
   const lock = env.SKVALLERBYTTAN_ISSUE_LOCK.getByName(`delivery:${delivery}`);
   if (!(await lock.claimDelivery())) {
-    console.log("skvallerbyttan duplicate delivery ignored", { delivery, event: req.headers.get("x-github-event") ?? "" });
+    console.log("skvallerbyttan duplicate delivery ignored", { delivery, event });
     return new Response("duplicate\n");
   }
 
   try {
-    const response = await coreWorker.fetch(req, env as Parameters<typeof coreWorker.fetch>[1], ctx);
+    const response = await handleVerifiedWebhook(
+      raw,
+      req.headers,
+      env as Parameters<typeof handleVerifiedWebhook>[2],
+      ctx,
+    );
     if (response.status >= 500) await lock.releaseDelivery();
     else await lock.completeDelivery();
     return response;
