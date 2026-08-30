@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { MalwareAlertCache } from "./malware-alert-cache";
 import { alertApiPath, alertIsRemediated, alertReference, assignmentAllowed, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
 
 interface Env {
@@ -294,9 +295,14 @@ async function runIssueReconciliation(token: string): Promise<void> {
   console.log("skvallerbyttan issue reconciliation complete", stats);
 }
 
-async function isMalware(token: string, repo: string, alertNumber: number): Promise<boolean> {
+async function loadMalwareAlertNumbers(token: string, repo: string): Promise<readonly number[]> {
   const alerts = await listAll<{ number: number }>(token, `/repos/${repo}/dependabot/alerts?state=open&classification=malware&per_page=100`);
-  return alerts.some((alert) => alert.number === alertNumber);
+  return alerts.map((alert) => alert.number);
+}
+
+async function isMalware(token: string, repo: string, alertNumber: number, cache?: MalwareAlertCache): Promise<boolean> {
+  if (cache) return cache.has(repo, alertNumber);
+  return (await loadMalwareAlertNumbers(token, repo)).includes(alertNumber);
 }
 
 function codeScanningIssue(alert: any): IssueSpec | null {
@@ -311,9 +317,9 @@ function codeScanningIssue(alert: any): IssueSpec | null {
   };
 }
 
-async function dependabotIssue(token: string, repo: string, alert: any): Promise<IssueSpec | null> {
+async function dependabotIssue(token: string, repo: string, alert: any, malwareCache?: MalwareAlertCache): Promise<IssueSpec | null> {
   if (alert.state !== "open" || !Number.isSafeInteger(alert.number)) return null;
-  const malware = await isMalware(token, repo, alert.number);
+  const malware = await isMalware(token, repo, alert.number, malwareCache);
   const severity = String(alert.security_advisory?.severity ?? alert.security_vulnerability?.severity ?? "unknown").toLowerCase();
   if (!malware && !ISSUE_SEVERITIES.has(severity)) return null;
   const level = malware ? "MALWARE" : severity.toUpperCase();
@@ -436,12 +442,13 @@ async function runBackfill(env: Env): Promise<void> {
     `/orgs/${encodeURIComponent(ORG)}/code-scanning/alerts?state=open&per_page=100`,
     async (_repo, alert) => codeScanningIssue(alert),
   );
+  const malwareCache = new MalwareAlertCache((repo) => loadMalwareAlertNumbers(token, repo));
   const dependabot = await backfillType(
     env,
     token,
     "dependabot",
     `/orgs/${encodeURIComponent(ORG)}/dependabot/alerts?state=open&per_page=100`,
-    async (repo, alert) => dependabotIssue(token, repo, alert),
+    async (repo, alert) => dependabotIssue(token, repo, alert, malwareCache),
   );
   const secret = await backfillType(
     env,
