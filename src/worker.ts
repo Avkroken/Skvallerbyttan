@@ -9,6 +9,7 @@ import {
 import type { SkvallerbyttanBindings } from "./env";
 import { shouldClaimOperation, type OperationRecord } from "./idempotency";
 import { runtimeReady } from "./runtime-health";
+import { reopenClosedSecurityIssue } from "./security-issue-reopen";
 import {
   declaredWebhookBodyTooLarge,
   githubDeliveryId,
@@ -44,10 +45,21 @@ export class SkvallerbyttanIssueLock extends CoreIssueLock {
     });
   }
 
+  private async reopenExistingIssue(token: string, repo: string, marker: string): Promise<void> {
+    const issueNumber = await reopenClosedSecurityIssue(token, repo, marker);
+    if (issueNumber !== null) {
+      console.log("skvallerbyttan existing security issue reopened", { repo, issueNumber, marker });
+    }
+  }
+
   async createIssue(token: string, repo: string, issue: IssueSpec): Promise<"created" | "exists"> {
-    if (!(await this.claim("issue"))) return "exists";
+    if (!(await this.claim("issue"))) {
+      await this.reopenExistingIssue(token, repo, issue.marker);
+      return "exists";
+    }
     try {
       const result = await super.createIssue(token, repo, issue);
+      if (result === "exists") await this.reopenExistingIssue(token, repo, issue.marker);
       await this.complete("issue");
       return result;
     } catch (error) {
