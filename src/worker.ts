@@ -15,8 +15,6 @@ interface Env {
   SKVALLERBYTTAN_ISSUE_LOCK: DurableObjectNamespace<SkvallerbyttanIssueLock>;
 }
 
-const LEGACY_QUEUE_CRON = "*/5 * * * *";
-
 export class SkvallerbyttanIssueLock extends CoreIssueLock {
   private async claim(key: string, now = Date.now()): Promise<boolean> {
     return this.ctx.storage.transaction(async (transaction) => {
@@ -113,10 +111,6 @@ async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContex
 export default {
   fetch: fetchWithIdempotency,
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (event.cron === LEGACY_QUEUE_CRON) {
-      console.log("skvallerbyttan ignored legacy queue cron", { cron: event.cron });
-      return;
-    }
     await coreWorker.scheduled(event, env as Parameters<typeof coreWorker.scheduled>[1], ctx);
   },
 } satisfies ExportedHandler<Env>;
