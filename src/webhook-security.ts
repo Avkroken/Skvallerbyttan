@@ -29,10 +29,6 @@ export function declaredWebhookBodyTooLarge(contentLength: string | null): boole
   return Number.isFinite(declaredLength) && declaredLength > MAX_WEBHOOK_BYTES;
 }
 
-export function webhookBodyTooLarge(raw: string): boolean {
-  return new TextEncoder().encode(raw).byteLength > MAX_WEBHOOK_BYTES;
-}
-
 export async function readWebhookBody(body: ReadableStream<Uint8Array> | null): Promise<string> {
   if (!body) return "";
 
