@@ -14,6 +14,7 @@ interface Env {
 }
 
 const MAX_WEBHOOK_BYTES = 1024 * 1024;
+const LEGACY_QUEUE_CRON = "*/5 * * * *";
 
 function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -128,6 +129,10 @@ async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContex
 export default {
   fetch: fetchWithIdempotency,
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === LEGACY_QUEUE_CRON) {
+      console.log("skvallerbyttan ignored legacy queue cron", { cron: event.cron });
+      return;
+    }
     await coreWorker.scheduled(event, env as Parameters<typeof coreWorker.scheduled>[1], ctx);
   },
 } satisfies ExportedHandler<Env>;
