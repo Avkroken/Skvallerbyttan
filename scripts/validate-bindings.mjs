@@ -1,13 +1,83 @@
 import { readFile } from "node:fs/promises";
-import ts from "typescript";
 
-function parseJsonc(path, text) {
-  const parsed = ts.parseConfigFileTextToJson(path, text);
-  if (parsed.error) {
-    const message = ts.flattenDiagnosticMessageText(parsed.error.messageText, "\n");
-    throw new Error(`Could not parse ${path}: ${message}`);
+function stripJsonComments(text) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const next = text[index + 1];
+
+    if (inString) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      output += character;
+      continue;
+    }
+
+    if (character === "/" && next === "/") {
+      while (index < text.length && text[index] !== "\n") index += 1;
+      output += "\n";
+      continue;
+    }
+
+    if (character === "/" && next === "*") {
+      index += 2;
+      while (index < text.length && !(text[index] === "*" && text[index + 1] === "/")) index += 1;
+      index += 1;
+      continue;
+    }
+
+    output += character;
   }
-  return parsed.config ?? {};
+
+  return output;
+}
+
+function stripTrailingCommas(text) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (inString) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      output += character;
+      continue;
+    }
+
+    if (character === ",") {
+      let lookahead = index + 1;
+      while (/\s/.test(text[lookahead] ?? "")) lookahead += 1;
+      if (text[lookahead] === "}" || text[lookahead] === "]") continue;
+    }
+
+    output += character;
+  }
+
+  return output;
+}
+
+function parseJsonc(text) {
+  return JSON.parse(stripTrailingCommas(stripJsonComments(text)));
 }
 
 function bindingNamesFromBlock(source, pattern, description) {
@@ -17,7 +87,7 @@ function bindingNamesFromBlock(source, pattern, description) {
 }
 
 const configPath = "wrangler.jsonc";
-const config = parseJsonc(configPath, await readFile(configPath, "utf8"));
+const config = parseJsonc(await readFile(configPath, "utf8"));
 const entrypoint = String(config.main ?? "").trim();
 if (!entrypoint) throw new Error(`${configPath} is missing main Worker entrypoint`);
 
