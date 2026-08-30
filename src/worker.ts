@@ -1,5 +1,6 @@
 import coreWorker, { SkvallerbyttanIssueLock as CoreIssueLock } from "./index";
 import { shouldClaimOperation, type OperationRecord } from "./idempotency";
+import { declaredWebhookBodyTooLarge, verifyWebhookSignature, webhookBodyTooLarge } from "./webhook-security";
 
 type IssueSpec = { marker: string; title: string; body: string };
 
@@ -13,32 +14,7 @@ interface Env {
   SKVALLERBYTTAN_ISSUE_LOCK: DurableObjectNamespace<SkvallerbyttanIssueLock>;
 }
 
-const MAX_WEBHOOK_BYTES = 1024 * 1024;
 const LEGACY_QUEUE_CRON = "*/5 * * * *";
-
-function hex(buffer: ArrayBuffer): string {
-  return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let index = 0; index < a.length; index += 1) diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
-  return diff === 0;
-}
-
-async function verifySignature(raw: string, signature: string | null, secret: string): Promise<boolean> {
-  if (!secret || !signature?.startsWith("sha256=")) return false;
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
-  return safeEqual(signature, `sha256=${hex(digest)}`);
-}
 
 export class SkvallerbyttanIssueLock extends CoreIssueLock {
   private async claim(key: string, now = Date.now()): Promise<boolean> {
@@ -92,17 +68,16 @@ async function fetchWithIdempotency(req: Request, env: Env, ctx: ExecutionContex
     return coreWorker.fetch(req, env as Parameters<typeof coreWorker.fetch>[1], ctx);
   }
 
-  const declaredLength = Number(req.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_WEBHOOK_BYTES) {
+  if (declaredWebhookBodyTooLarge(req.headers.get("content-length"))) {
     return new Response("Payload too large", { status: 413 });
   }
 
   const raw = await req.clone().text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_WEBHOOK_BYTES) {
+  if (webhookBodyTooLarge(raw)) {
     return new Response("Payload too large", { status: 413 });
   }
 
-  if (!(await verifySignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
+  if (!(await verifyWebhookSignature(raw, req.headers.get("x-hub-signature-256"), env.SKVALLERBYTTAN_WEBHOOK_SECRET))) {
     return coreWorker.fetch(req, env as Parameters<typeof coreWorker.fetch>[1], ctx);
   }
 
