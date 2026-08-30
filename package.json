@@ -6,7 +6,9 @@
     "check": "npm test && npm run typecheck && npm run validate:bindings && npm run validate:worker",
     "predeploy": "npm run check",
     "deploy": "wrangler deploy",
-    "test": "tsx --test test/*.test.ts",
+    "predeploy:production": "npm run check",
+    "deploy:production": "node scripts/deploy-production.mjs",
+    "test": "tsx --test test/*.test.ts && node --test scripts/deploy-production.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate:bindings": "node scripts/validate-bindings.mjs",
     "validate:worker": "wrangler deploy --dry-run"
