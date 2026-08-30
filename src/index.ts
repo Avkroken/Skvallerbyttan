@@ -263,7 +263,7 @@ async function reconcileIssue(token: string, issue: SecurityIssue): Promise<"clo
 async function findSecurityIssues(token: string): Promise<SecurityIssue[]> {
   const issues: SecurityIssue[] = [];
   for (let page = 1; page <= 10; page += 1) {
-    const query = `org:${ORG} is:issue in:body \"skvallerbyttan-alert:\"`;
+    const query = `org:${ORG} is:issue in:body "skvallerbyttan-alert:"`;
     const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=asc&per_page=100&page=${page}`)).json<{ items?: SecurityIssue[] }>();
     const batch = data.items ?? [];
     issues.push(...batch);
@@ -515,7 +515,7 @@ export default {
       const webhookAlert = alertReference(`skvallerbyttan-alert:${event.replaceAll("_alert", "").replaceAll("_", "-")}:${alert.number}`);
       const webhookState = String(alert.state ?? (event === "secret_scanning_alert" && action === "resolved" ? "resolved" : "")).toLowerCase();
       if (webhookAlert && alertIsRemediated(webhookAlert, webhookState)) {
-        const query = `repo:${repo} is:issue is:open in:body \"skvallerbyttan-alert:${webhookAlert.type}:${webhookAlert.number}\"`;
+        const query = `repo:${repo} is:issue is:open in:body "skvallerbyttan-alert:${webhookAlert.type}:${webhookAlert.number}"`;
         const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ items?: SecurityIssue[] }>();
         const issueToClose = data.items?.[0];
         if (issueToClose) await closeRemediatedIssue(token, repo, issueToClose.number, webhookAlert, webhookState);
