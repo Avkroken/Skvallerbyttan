@@ -52,3 +52,6 @@ jobs:
 
       - name: Validera Cloudflare-bindings
         run: npm run validate:bindings
+
+      - name: Kompilera Worker med Wrangler
+        run: npm run validate:worker
