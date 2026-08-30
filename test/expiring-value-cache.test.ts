@@ -37,6 +37,19 @@ test("ExpiringValueCache rejects a newly loaded value inside the safety window",
   );
 });
 
+test("ExpiringValueCache rechecks current time after loading", async () => {
+  let clock = 100_000;
+  const cache = new ExpiringValueCache<string>(60_000, () => clock);
+
+  await assert.rejects(
+    () => cache.get(async () => {
+      clock = 150_000;
+      return { value: "near-expiry", expiresAt: 200_000 };
+    }),
+    /safety window/,
+  );
+});
+
 test("ExpiringValueCache shares an in-flight load", async () => {
   let calls = 0;
   let resolveLoad: ((value: { value: string; expiresAt: number }) => void) | undefined;
