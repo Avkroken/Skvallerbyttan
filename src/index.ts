@@ -1,4 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { retryOnceAfterUnauthorized } from "./auth-retry";
+import { ExpiringValueCache } from "./expiring-value-cache";
 import { MalwareAlertCache } from "./malware-alert-cache";
 import { alertApiPath, alertIsRemediated, alertReference, assignmentAllowed, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
 
@@ -22,6 +24,7 @@ const ISSUE_SEVERITIES = new Set(["medium", "high", "critical"]);
 const SUPPORTED_EVENTS = new Set(["code_scanning_alert", "dependabot_alert", "secret_scanning_alert"]);
 const SECURITY_ISSUE_ASSIGNEE = "blixten85";
 const ASSIGNMENT_PAUSED_REPOS = new Set(["avkroken/produkter"]);
+const installationTokenCache = new ExpiringValueCache<string>();
 
 function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -112,7 +115,7 @@ async function verifyGitHubAppIdentity(jwt: string, expectedClientId: string): P
   });
 }
 
-async function installationToken(env: Env): Promise<string> {
+async function mintInstallationToken(env: Env): Promise<{ value: string; expiresAt: number }> {
   const jwt = await appJwt(env);
   await verifyGitHubAppIdentity(jwt, env.SKVALLERBYTTAN_CLIENT_ID);
   const installationResponse = await fetch(`https://api.github.com/orgs/${encodeURIComponent(ORG)}/installation`, {
@@ -127,25 +130,53 @@ async function installationToken(env: Env): Promise<string> {
     headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
   });
   if (!response.ok) throw new Error(`GitHub installation token ${response.status}: ${(await response.text()).slice(0, 500)}`);
-  const data = await response.json<{ token?: string }>();
+  const data = await response.json<{ token?: string; expires_at?: string }>();
   if (!data.token) throw new Error("GitHub installation token missing");
-  return data.token;
+  const expiresAt = Date.parse(data.expires_at ?? "");
+  if (!Number.isFinite(expiresAt)) throw new Error("GitHub installation token expiry missing");
+  return { value: data.token, expiresAt };
 }
 
-async function github(token: string, path: string, init: RequestInit = {}): Promise<Response> {
-  const response = await fetch(`https://api.github.com${path}`, {
+async function installationToken(env: Env, fresh = false): Promise<string> {
+  const load = () => mintInstallationToken(env);
+  return fresh ? installationTokenCache.getFresh(load) : installationTokenCache.get(load);
+}
+
+async function githubFetch(token: string, path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`https://api.github.com${path}`, {
     ...init,
     headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan", ...(init.headers ?? {}) },
   });
+}
+
+async function githubWithToken(token: string, path: string, init: RequestInit = {}): Promise<Response> {
+  const response = await githubFetch(token, path, init);
   if (!response.ok) throw new Error(`GitHub API ${response.status}: ${(await response.text()).slice(0, 500)}`);
   return response;
 }
 
-async function listAll<T>(token: string, initialPath: string): Promise<T[]> {
+async function github(env: Env, path: string, init: RequestInit = {}): Promise<Response> {
+  const response = await retryOnceAfterUnauthorized(
+    () => installationToken(env),
+    async (rejectedToken) => {
+      installationTokenCache.invalidate(rejectedToken);
+      return installationToken(env);
+    },
+    (token) => githubFetch(token, path, init),
+  );
+  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  return response;
+}
+
+function isGitHubUnauthorized(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("GitHub API 401:");
+}
+
+async function listAll<T>(env: Env, initialPath: string): Promise<T[]> {
   const all: T[] = [];
   let path: string | null = initialPath;
   while (path) {
-    const response = await github(token, path);
+    const response = await github(env, path);
     all.push(...await response.json<T[]>());
     const next = (response.headers.get("link") ?? "").split(",").find((part) => part.includes('rel="next"'));
     const match = next?.match(/<https:\/\/api\.github\.com([^>]+)>/);
@@ -156,14 +187,14 @@ async function listAll<T>(token: string, initialPath: string): Promise<T[]> {
 
 async function issueExists(token: string, repo: string, marker: string): Promise<boolean> {
   const query = `repo:${repo} \"${marker}\" in:body`;
-  const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ total_count?: number }>();
+  const data = await (await githubWithToken(token, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ total_count?: number }>();
   return (data.total_count ?? 0) > 0;
 }
 
 async function createIssueUnlocked(token: string, repo: string, issue: IssueSpec): Promise<"created" | "exists"> {
   if (await issueExists(token, repo, issue.marker)) return "exists";
   const assignees = assignmentAllowed(repo, ASSIGNMENT_PAUSED_REPOS) ? [SECURITY_ISSUE_ASSIGNEE] : [];
-  await github(token, `/repos/${repo}/issues`, {
+  await githubWithToken(token, `/repos/${repo}/issues`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -191,9 +222,17 @@ export class SkvallerbyttanIssueLock extends DurableObject<Env> {
   }
 }
 
-async function createIssue(env: Env, token: string, repo: string, issue: IssueSpec): Promise<"created" | "exists"> {
+async function createIssue(env: Env, repo: string, issue: IssueSpec): Promise<"created" | "exists"> {
   const lock = env.SKVALLERBYTTAN_ISSUE_LOCK.getByName(`${repo}:${issue.marker}`);
-  return lock.createIssue(token, repo, issue);
+  let token = await installationToken(env);
+  try {
+    return await lock.createIssue(token, repo, issue);
+  } catch (error) {
+    if (!isGitHubUnauthorized(error)) throw error;
+    installationTokenCache.invalidate(token);
+    token = await installationToken(env);
+    return lock.createIssue(token, repo, issue);
+  }
 }
 
 function repoFromApiUrl(repositoryUrl: string): string {
@@ -201,40 +240,40 @@ function repoFromApiUrl(repositoryUrl: string): string {
   return repositoryUrl.startsWith(prefix) ? repositoryUrl.slice(prefix.length) : "";
 }
 
-async function closeRemediatedIssue(token: string, repo: string, issueNumber: number, alert: AlertReference, state: string): Promise<void> {
+async function closeRemediatedIssue(env: Env, repo: string, issueNumber: number, alert: AlertReference, state: string): Promise<void> {
   const marker = `skvallerbyttan-reconciled:${alert.type}:${alert.number}:${state}`;
-  await github(token, `/repos/${repo}/issues/${issueNumber}/comments`, {
+  await github(env, `/repos/${repo}/issues/${issueNumber}/comments`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       body: `<!-- ${marker} -->\nSkvallerbyttan verifierade via GitHub API att säkerhetsalerten nu har state \`${state}\` och stänger därför issuet som slutfört.`,
     }),
   });
-  await github(token, `/repos/${repo}/issues/${issueNumber}`, {
+  await github(env, `/repos/${repo}/issues/${issueNumber}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ state: "closed", state_reason: "completed" }),
   });
 }
 
-async function reopenUnremediatedIssue(token: string, repo: string, issueNumber: number, alert: AlertReference): Promise<void> {
-  await github(token, `/repos/${repo}/issues/${issueNumber}/comments`, {
+async function reopenUnremediatedIssue(env: Env, repo: string, issueNumber: number, alert: AlertReference): Promise<void> {
+  await github(env, `/repos/${repo}/issues/${issueNumber}/comments`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       body: `<!-- skvallerbyttan-reopened:${alert.type}:${alert.number} -->\nSkvallerbyttan verifierade via GitHub API att säkerhetsalerten fortfarande har state \`open\` och återöppnar därför issuet.`,
     }),
   });
-  await github(token, `/repos/${repo}/issues/${issueNumber}`, {
+  await github(env, `/repos/${repo}/issues/${issueNumber}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ state: "open" }),
   });
 }
 
-async function ensureSecurityIssueAssignee(token: string, repo: string, issue: SecurityIssue): Promise<boolean> {
+async function ensureSecurityIssueAssignee(env: Env, repo: string, issue: SecurityIssue): Promise<boolean> {
   if (!assignmentAllowed(repo, ASSIGNMENT_PAUSED_REPOS) || issue.state !== "open" || !needsAssignee(issue.assignees ?? [], SECURITY_ISSUE_ASSIGNEE)) return false;
-  await github(token, `/repos/${repo}/issues/${issue.number}/assignees`, {
+  await github(env, `/repos/${repo}/issues/${issue.number}/assignees`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ assignees: [SECURITY_ISSUE_ASSIGNEE] }),
@@ -242,30 +281,30 @@ async function ensureSecurityIssueAssignee(token: string, repo: string, issue: S
   return true;
 }
 
-async function reconcileIssue(token: string, issue: SecurityIssue): Promise<"closed" | "reopened" | "synced" | "ignored"> {
+async function reconcileIssue(env: Env, issue: SecurityIssue): Promise<"closed" | "reopened" | "synced" | "ignored"> {
   const repo = repoFromApiUrl(issue.repository_url);
   const alert = alertReference(issue.body ?? "");
   if (!validOrgRepo(repo) || !alert) return "ignored";
-  const data = await (await github(token, alertApiPath(repo, alert))).json<{ state?: string }>();
+  const data = await (await github(env, alertApiPath(repo, alert))).json<{ state?: string }>();
   const state = String(data.state ?? "").toLowerCase();
   const desiredState = reconciledIssueState(alert, state);
   if (desiredState === "closed") {
     if (issue.state === "closed") return "synced";
-    await closeRemediatedIssue(token, repo, issue.number, alert, state);
+    await closeRemediatedIssue(env, repo, issue.number, alert, state);
     return "closed";
   }
   if (desiredState === "open" && issue.state === "closed") {
-    await reopenUnremediatedIssue(token, repo, issue.number, alert);
+    await reopenUnremediatedIssue(env, repo, issue.number, alert);
     return "reopened";
   }
   return "synced";
 }
 
-async function findSecurityIssues(token: string): Promise<SecurityIssue[]> {
+async function findSecurityIssues(env: Env): Promise<SecurityIssue[]> {
   const issues: SecurityIssue[] = [];
   for (let page = 1; page <= 10; page += 1) {
     const query = `org:${ORG} is:issue in:body "skvallerbyttan-alert:"`;
-    const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=asc&per_page=100&page=${page}`)).json<{ items?: SecurityIssue[] }>();
+    const data = await (await github(env, `/search/issues?q=${encodeURIComponent(query)}&sort=created&order=asc&per_page=100&page=${page}`)).json<{ items?: SecurityIssue[] }>();
     const batch = data.items ?? [];
     issues.push(...batch);
     if (batch.length < 100) break;
@@ -273,16 +312,16 @@ async function findSecurityIssues(token: string): Promise<SecurityIssue[]> {
   return issues;
 }
 
-async function runIssueReconciliation(token: string): Promise<void> {
-  const issues = await findSecurityIssues(token);
+async function runIssueReconciliation(env: Env): Promise<void> {
+  const issues = await findSecurityIssues(env);
   const stats = { candidates: issues.length, assigned: 0, closed: 0, reopened: 0, synced: 0, ignored: 0, errors: 0 };
   for (const issue of issues) {
     try {
       const repo = repoFromApiUrl(issue.repository_url);
-      const result = await reconcileIssue(token, issue);
+      const result = await reconcileIssue(env, issue);
       stats[result] += 1;
       const currentIssue = result === "reopened" ? { ...issue, state: "open" } : issue;
-      if (result !== "closed" && validOrgRepo(repo) && await ensureSecurityIssueAssignee(token, repo, currentIssue)) stats.assigned += 1;
+      if (result !== "closed" && validOrgRepo(repo) && await ensureSecurityIssueAssignee(env, repo, currentIssue)) stats.assigned += 1;
     } catch (error) {
       stats.errors += 1;
       console.error("skvallerbyttan issue reconciliation failed", {
@@ -295,14 +334,14 @@ async function runIssueReconciliation(token: string): Promise<void> {
   console.log("skvallerbyttan issue reconciliation complete", stats);
 }
 
-async function loadMalwareAlertNumbers(token: string, repo: string): Promise<readonly number[]> {
-  const alerts = await listAll<{ number: number }>(token, `/repos/${repo}/dependabot/alerts?state=open&classification=malware&per_page=100`);
+async function loadMalwareAlertNumbers(env: Env, repo: string): Promise<readonly number[]> {
+  const alerts = await listAll<{ number: number }>(env, `/repos/${repo}/dependabot/alerts?state=open&classification=malware&per_page=100`);
   return alerts.map((alert) => alert.number);
 }
 
-async function isMalware(token: string, repo: string, alertNumber: number, cache?: MalwareAlertCache): Promise<boolean> {
+async function isMalware(env: Env, repo: string, alertNumber: number, cache?: MalwareAlertCache): Promise<boolean> {
   if (cache) return cache.has(repo, alertNumber);
-  return (await loadMalwareAlertNumbers(token, repo)).includes(alertNumber);
+  return (await loadMalwareAlertNumbers(env, repo)).includes(alertNumber);
 }
 
 function codeScanningIssue(alert: any): IssueSpec | null {
@@ -317,9 +356,9 @@ function codeScanningIssue(alert: any): IssueSpec | null {
   };
 }
 
-async function dependabotIssue(token: string, repo: string, alert: any, malwareCache?: MalwareAlertCache): Promise<IssueSpec | null> {
+async function dependabotIssue(env: Env, repo: string, alert: any, malwareCache?: MalwareAlertCache): Promise<IssueSpec | null> {
   if (alert.state !== "open" || !Number.isSafeInteger(alert.number)) return null;
-  const malware = await isMalware(token, repo, alert.number, malwareCache);
+  const malware = await isMalware(env, repo, alert.number, malwareCache);
   const severity = String(alert.security_advisory?.severity ?? alert.security_vulnerability?.severity ?? "unknown").toLowerCase();
   if (!malware && !ISSUE_SEVERITIES.has(severity)) return null;
   const level = malware ? "MALWARE" : severity.toUpperCase();
@@ -405,13 +444,12 @@ function validOrgRepo(repo: string): boolean {
 
 async function backfillType(
   env: Env,
-  token: string,
   type: string,
   path: string,
   makeIssue: (repo: string, alert: any) => Promise<IssueSpec | null>,
 ): Promise<BackfillStats> {
   const stats: BackfillStats = { scanned: 0, eligible: 0, created: 0, exists: 0, errors: 0 };
-  const alerts = await listAll<any>(token, path);
+  const alerts = await listAll<any>(env, path);
   stats.scanned = alerts.length;
 
   for (const alert of alerts) {
@@ -421,7 +459,7 @@ async function backfillType(
       const issue = await makeIssue(repo, alert);
       if (!issue) continue;
       stats.eligible += 1;
-      const result = await createIssue(env, token, repo, issue);
+      const result = await createIssue(env, repo, issue);
       stats[result] += 1;
     } catch (error) {
       stats.errors += 1;
@@ -434,31 +472,28 @@ async function backfillType(
 
 async function runBackfill(env: Env): Promise<void> {
   if (!configured(env)) throw new Error("Skvallerbyttan Worker is not configured");
-  const token = await installationToken(env);
+  await installationToken(env, true);
   const code = await backfillType(
     env,
-    token,
     "code_scanning",
     `/orgs/${encodeURIComponent(ORG)}/code-scanning/alerts?state=open&per_page=100`,
     async (_repo, alert) => codeScanningIssue(alert),
   );
-  const malwareCache = new MalwareAlertCache((repo) => loadMalwareAlertNumbers(token, repo));
+  const malwareCache = new MalwareAlertCache((repo) => loadMalwareAlertNumbers(env, repo));
   const dependabot = await backfillType(
     env,
-    token,
     "dependabot",
     `/orgs/${encodeURIComponent(ORG)}/dependabot/alerts?state=open&per_page=100`,
-    async (repo, alert) => dependabotIssue(token, repo, alert, malwareCache),
+    async (repo, alert) => dependabotIssue(env, repo, alert, malwareCache),
   );
   const secret = await backfillType(
     env,
-    token,
     "secret_scanning",
     `/orgs/${encodeURIComponent(ORG)}/secret-scanning/alerts?state=open&per_page=100`,
     async (_repo, alert) => secretScanningIssue(alert),
   );
   console.log("skvallerbyttan backfill complete", { code, dependabot, secret });
-  await runIssueReconciliation(token);
+  await runIssueReconciliation(env);
 }
 
 export default {
@@ -518,21 +553,20 @@ export default {
     }
 
     try {
-      const token = await installationToken(env);
       const webhookAlert = alertReference(`skvallerbyttan-alert:${event.replaceAll("_alert", "").replaceAll("_", "-")}:${alert.number}`);
       const webhookState = String(alert.state ?? (event === "secret_scanning_alert" && action === "resolved" ? "resolved" : "")).toLowerCase();
       if (webhookAlert && alertIsRemediated(webhookAlert, webhookState)) {
         const query = `repo:${repo} is:issue is:open in:body "skvallerbyttan-alert:${webhookAlert.type}:${webhookAlert.number}"`;
-        const data = await (await github(token, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ items?: SecurityIssue[] }>();
+        const data = await (await github(env, `/search/issues?q=${encodeURIComponent(query)}&per_page=1`)).json<{ items?: SecurityIssue[] }>();
         const issueToClose = data.items?.[0];
-        if (issueToClose) await closeRemediatedIssue(token, repo, issueToClose.number, webhookAlert, webhookState);
+        if (issueToClose) await closeRemediatedIssue(env, repo, issueToClose.number, webhookAlert, webhookState);
         console.log("skvallerbyttan webhook reconciliation result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result: issueToClose ? "closed" : "missing" });
         return new Response(`${issueToClose ? "closed" : "missing"}\n`);
       }
       const issue = event === "code_scanning_alert"
         ? codeScanningIssue(alert)
         : event === "dependabot_alert"
-          ? await dependabotIssue(token, repo, alert)
+          ? await dependabotIssue(env, repo, alert)
           : (action === "created" || action === "reopened") ? secretScanningIssue({ ...alert, state: "open" }) : null;
 
       if (!issue) {
@@ -540,7 +574,7 @@ export default {
         return new Response("ignored\n", { status: 202 });
       }
 
-      const result = await createIssue(env, token, repo, issue);
+      const result = await createIssue(env, repo, issue);
       console.log("skvallerbyttan webhook issue result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result });
       return new Response(`${result}\n`, { status: result === "created" ? 201 : 200 });
     } catch (error) {
