@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { ExpiringValueCache } from "./expiring-value-cache";
 import { MalwareAlertCache } from "./malware-alert-cache";
 import { alertApiPath, alertIsRemediated, alertReference, assignmentAllowed, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
 
@@ -22,6 +23,7 @@ const ISSUE_SEVERITIES = new Set(["medium", "high", "critical"]);
 const SUPPORTED_EVENTS = new Set(["code_scanning_alert", "dependabot_alert", "secret_scanning_alert"]);
 const SECURITY_ISSUE_ASSIGNEE = "blixten85";
 const ASSIGNMENT_PAUSED_REPOS = new Set(["avkroken/produkter"]);
+const installationTokenCache = new ExpiringValueCache<string>();
 
 function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -113,23 +115,27 @@ async function verifyGitHubAppIdentity(jwt: string, expectedClientId: string): P
 }
 
 async function installationToken(env: Env): Promise<string> {
-  const jwt = await appJwt(env);
-  await verifyGitHubAppIdentity(jwt, env.SKVALLERBYTTAN_CLIENT_ID);
-  const installationResponse = await fetch(`https://api.github.com/orgs/${encodeURIComponent(ORG)}/installation`, {
-    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
-  });
-  if (!installationResponse.ok) throw new Error(`GitHub installation lookup ${installationResponse.status}: ${(await installationResponse.text()).slice(0, 500)}`);
-  const installation = await installationResponse.json<{ id?: number }>();
-  if (!Number.isSafeInteger(installation.id) || Number(installation.id) <= 0) throw new Error("GitHub installation id missing");
+  return installationTokenCache.get(async () => {
+    const jwt = await appJwt(env);
+    await verifyGitHubAppIdentity(jwt, env.SKVALLERBYTTAN_CLIENT_ID);
+    const installationResponse = await fetch(`https://api.github.com/orgs/${encodeURIComponent(ORG)}/installation`, {
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
+    });
+    if (!installationResponse.ok) throw new Error(`GitHub installation lookup ${installationResponse.status}: ${(await installationResponse.text()).slice(0, 500)}`);
+    const installation = await installationResponse.json<{ id?: number }>();
+    if (!Number.isSafeInteger(installation.id) || Number(installation.id) <= 0) throw new Error("GitHub installation id missing");
 
-  const response = await fetch(`https://api.github.com/app/installations/${installation.id}/access_tokens`, {
-    method: "POST",
-    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
+    const response = await fetch(`https://api.github.com/app/installations/${installation.id}/access_tokens`, {
+      method: "POST",
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${jwt}`, "X-GitHub-Api-Version": API_VERSION, "User-Agent": "Avkroken-skvallerbyttan" },
+    });
+    if (!response.ok) throw new Error(`GitHub installation token ${response.status}: ${(await response.text()).slice(0, 500)}`);
+    const data = await response.json<{ token?: string; expires_at?: string }>();
+    if (!data.token) throw new Error("GitHub installation token missing");
+    const expiresAt = Date.parse(data.expires_at ?? "");
+    if (!Number.isFinite(expiresAt)) throw new Error("GitHub installation token expiry missing");
+    return { value: data.token, expiresAt };
   });
-  if (!response.ok) throw new Error(`GitHub installation token ${response.status}: ${(await response.text()).slice(0, 500)}`);
-  const data = await response.json<{ token?: string }>();
-  if (!data.token) throw new Error("GitHub installation token missing");
-  return data.token;
 }
 
 async function github(token: string, path: string, init: RequestInit = {}): Promise<Response> {
