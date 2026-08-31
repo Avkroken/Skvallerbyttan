@@ -28,6 +28,7 @@ jobs:
           client-id: ${{ vars.GAMNACKEN_ID }}
           private-key: ${{ secrets.GAMNACKEN_PEMKEY }}
           owner: ${{ github.repository_owner }}
+          permission-checks: read
           permission-contents: write
           permission-issues: write
           permission-pull-requests: write
