@@ -47,7 +47,7 @@ Flödet är:
 6. `@codex`-kommentaren skrivs med den verifierade användarcredentialen. Bot-skrivna mentions används inte som delegationsmekanism.
 7. Så länge seed-filen finns kvar, eller PR:n saknar verkliga filändringar, hålls PR:n draft och auto-merge avstängd.
 8. Innan ready/auto-merge verifierar dispatchern den ursprungliga GitHub-alerten. Alerten måste fortfarande vara öppen och PR:n måste ändra alert-relevant path: Code Scanning source path, Dependabot manifest/relevant lockfile eller verifierad Secret Scanning commit-location. Oförifierbar scope eller API-/permissionfel failar stängt och håller PR:n draft.
-9. När scope-gaten är uppfylld markeras PR:n ready och squash auto-merge armeras. Required CI och review-thread-resolution i målrepositoryt fortsätter blockera merge.
+9. När scope-gaten är uppfylld och målrepositoryts obligatoriska merge-gates är verifierade för aktuell HEAD markeras PR:n ready och squash auto-merge kan armeras.
 10. Om GitHub vägrar armera auto-merge lämnas PR:n öppen med en blockeringskommentar. Dispatchern gör aldrig direkt merge som fallback.
 
 Repository-lokala branchpooler, `sync-pool`, PR-watchdogs och remediation-bridge-workflows ingår inte längre i den här modellen.
@@ -71,11 +71,16 @@ Production trigger ska använda:
 
 Det finns ingen repo-lokal deployorkestrerare och ingen duplicerad Workers Builds branch/SHA-logik. Production branch, root directory, watch paths och kommandosekvens ägs av Cloudflare Workers Builds. `wrangler.jsonc` är source of truth för bindings, custom domain, cron, Durable Object-migrationer och observability. `workers_dev` och `preview_urls` är explicit avstängda så produktion bara exponeras via den deklarerade custom domainen.
 
-## GitHub Actions
+## GitHub Actions och merge-enforcement
 
-Repositoryts live-ruleset kräver exakt status context `CI / required`.
+Live-rulesetet `main-enforcement` gäller default branch `main` och kräver exakt två status contexts:
 
-`.github/workflows/ci.yml` kör:
+- `CI / required`
+- `scan-pr / osv-scan`
+
+Required status checks använder strict latest-base enforcement (`strict_required_status_checks_policy: true`), så den verifierade PR-HEAD:en måste vara kompatibel med aktuell `main`.
+
+`.github/workflows/ci.yml` producerar `CI / required` och kör:
 
 - kontroll att ingen tillfällig Codex seed-fil finns kvar,
 - `npm ci`,
@@ -84,9 +89,25 @@ Repositoryts live-ruleset kräver exakt status context `CI / required`.
 - `npm run validate:bindings`,
 - `npm run validate:worker` (`wrangler deploy --dry-run`).
 
-`.github/workflows/osv-scanner.yml` kör kompletterande OSV-skanning för PR, `main` och schemalagd kontroll. OSV är inte en required context i live-rulesetet.
+`.github/workflows/osv-scanner.yml` producerar PR-context `scan-pr / osv-scan`. Den pinnade OSV reusable PR-scannern kör på varje PR mot `main` och failar på nya sårbarheter. `scan-main` fortsätter som kompletterande scanning på `main`, schema och manuell körning men är inte en required PR-context.
 
-Live `main`-rulesetet kräver också lösta review-trådar och tillåter endast squash merge. Repositoryt använder inte merge queue.
+CodeQL verkställs genom GitHub Code Scanning merge protection, separat från required status checks. Tool-namnet är `CodeQL`; security alerts från `medium_or_higher` blockerar merge och CodeQL alerts på nivåerna `errors_and_warnings` blockerar merge.
+
+Review- och merge-policyn är:
+
+- 0 generella approvals och ingen last-push-approval,
+- alla relevanta review-trådar måste vara resolved,
+- Copilot Code Review har `review_on_push: true` men är rådgivande och inte en hard gate,
+- CodeRabbit är best effort och inte en required status check; quota, rate limit eller tillfälligt reviewfel blockerar inte ensamt merge,
+- faktiska CodeRabbit- och Copilot-findings ska fortfarande utvärderas och relevanta review-trådar lösas först efter verifierad fix,
+- deletion och non-fast-forward/force push till `main` blockeras,
+- inga bypass actors finns,
+- endast squash merge är tillåten,
+- repositoryt använder inte merge queue.
+
+`.coderabbit.yaml` använder CodeRabbit inheritance, commit-statusrapportering, `fail_commit_status: true`, automatisk incremental review på nya pushes och `auto_pause_after_reviewed_commits: 0`. CodeRabbit-status är en observationssignal, inte ett mergevillkor.
+
+Auto-merge ska inte armeras förrän live-rulesetet är verifierat och de obligatoriska gates som gäller aktuell HEAD är identifierade. Efter en ny push måste aktuell HEAD och dess required CI/security-resultat samt review-trådar kontrolleras igen.
 
 ## GitHub App
 

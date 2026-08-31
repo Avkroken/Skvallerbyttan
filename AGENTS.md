@@ -16,7 +16,7 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 
 - Pusha aldrig direkt till `main`.
 - Använd en kortlivad branch och öppna en ready PR till `main`.
-- Aktivera auto-merge omedelbart när PR:n skapats, även medan CI eller review pågår.
+- Auto-merge får aktiveras först när live-rulesetet är verifierat, aktuell PR-HEAD är känd, samtliga obligatoriska CI/security-gates för den HEAD:en är identifierade och inga manuella rulesetåtgärder återstår.
 - Använd inte direkt merge om det inte uttryckligen begärts.
 - Live-rulesetet tillåter endast squash merge.
 - Repositoryt använder inte merge queue och har ingen obligatorisk återanvändbar branchpool.
@@ -24,16 +24,22 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 
 ## Merge-gates
 
-För `main` gäller:
+För `main` gäller live-rulesetet `main-enforcement`:
 
-- required status check: `CI / required`
+- required status checks: `CI / required` och `scan-pr / osv-scan`
+- `strict_required_status_checks_policy: true`; PR:n ska verifieras mot aktuell `main`
+- Code Scanning merge protection för `CodeQL`: security alerts `medium_or_higher` och alerts `errors_and_warnings`
+- 0 generella approvals och ingen last-push-approval
 - olösta review-trådar blockerar merge
-- Copilot Code Review körs vid push till PR-grenen
+- Copilot Code Review körs vid nya pushes, men är rådgivande och inte en required status check
+- CodeRabbit är best effort och är inte en required status check; quota, rate limit eller tjänsteavbrott blockerar inte ensamt merge
+- force push/non-fast-forward och deletion av `main` blockeras
+- inga bypass actors
 - squash är enda tillåtna merge-metod
 
-Alla review-kommentarer och trådar ska läsas och utvärderas. Relevanta findings åtgärdas i samma PR. En tråd markeras resolved först när eventuell nödvändig fix är pushad och verifierad.
+Alla review-kommentarer och trådar ska läsas och utvärderas. Relevanta findings åtgärdas i samma PR. En tråd markeras resolved först när eventuell nödvändig fix är pushad och verifierad. Faktiska CodeRabbit- eller Copilot-findings behandlas enligt samma princip även om respektive tjänst inte är en hard gate.
 
-Efter varje ny commit ska relevant CI och review-status kontrolleras igen. När required CI är grön och alla relevanta review-trådar är resolved ska den redan armerade auto-merge-funktionen föra PR:n till `main`.
+Efter varje ny commit ska aktuell PR-HEAD, `CI / required`, `scan-pr / osv-scan`, CodeQL merge protection och review-trådar kontrolleras igen. CodeRabbit- och Copilot-status får observeras men deras otillgänglighet är inte ensam merge-blockerare. När alla obligatoriska gates för aktuell HEAD är gröna och alla relevanta review-trådar är resolved får auto-merge föra PR:n till `main`.
 
 Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren identifieras. Kringgå inte repositoryskydd och använd inte direkt merge som fallback utan uttrycklig begäran.
 
@@ -47,8 +53,8 @@ Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren i
 - Codex-triggern ska skrivas med den verifierade användarcredentialen; bot-skrivna `@codex`-mentions är inte ett giltigt delegationskontrakt.
 - PR:n får inte bli ready förrän seed-filen är borttagen, minst en verklig filändring finns och den ursprungliga GitHub-alerten fortfarande är öppen med verifierad alert-relevant scope.
 - Code Scanning kräver ändring av alertens source path. Dependabot kräver manifest eller relevant sibling lockfile. Secret Scanning kräver ändring av en verifierad commit-location. Oförifierbar scope eller API-/permissionfel failar stängt.
-- När scope-gaten är uppfylld ska auto-merge armeras. Om GitHub nekar ska PR:n lämnas öppen och blockeraren dokumenteras; direkt merge får inte användas automatiskt.
-- Branch protection, required CI och review-resolution i målrepositoryt är alltid auktoritativa.
+- När scope-gaten är uppfylld ska auto-merge armeras först när målrepositoryts obligatoriska merge-gates är verifierade för aktuell HEAD. Om GitHub nekar ska PR:n lämnas öppen och blockeraren dokumenteras; direkt merge får inte användas automatiskt.
+- Branch protection, required CI/security-gates och review-resolution i målrepositoryt är alltid auktoritativa.
 
 ## Security alert-ingestion
 
@@ -64,7 +70,10 @@ Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren i
 
 - `.github/workflows/ci.yml` producerar live-required context `CI / required`.
 - Required CI kör tester, typecheck, binding-validering, Wrangler dry-run och blockerar kvarvarande `.github/codex-dispatch/issue-*.md`.
-- `.github/workflows/osv-scanner.yml` är kompletterande säkerhetsverifiering och är inte en required context.
+- `.github/workflows/osv-scanner.yml` producerar live-required PR-context `scan-pr / osv-scan`; den pinnade reusable PR-skanningen failar på nya sårbarheter.
+- OSV:s `scan-main` är kompletterande scanning på `main`/schedule/manual och är inte en required PR-context.
+- CodeQL verkställs separat genom GitHub Code Scanning merge protection med trösklarna `medium_or_higher` för security alerts och `errors_and_warnings` för alerts.
+- `.coderabbit.yaml` behåller inheritance, commit-statusrapportering och fail-status vid reviewfel samt automatisk inkrementell review utan auto-paus. CodeRabbit-status är observerbar men inte required.
 - `pr-watchdog`, `sync-pool`, `scope-policy`, repository-local remediation-observer, bot-baserad review-auto-fix och Code Scanning-snapshot ska inte återinföras utan ett nytt verifierat behov och motsvarande live ruleset/design.
 - Cloudflare Workers Builds är enda normala produktionsdeploykedjan från `main`; GitHub Actions ska inte deploya produktion.
 - Production trigger ska använda branch `main`, repository-root `/`, tomt build command och avstängda non-production branch builds.
@@ -76,10 +85,10 @@ Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren i
 
 ## Verifiering
 
-Före PR: granska hela diffen mot `main` och kör relevant test/typecheck/binding-validering. Efter varje push: kontrollera aktuell HEAD, required CI, övriga relevanta säkerhetsjobb, mergeability och review-trådar igen.
+Före PR: granska hela diffen mot `main` och kör relevant test/typecheck/binding-validering. Efter varje push: kontrollera aktuell HEAD, båda required status checks, CodeQL merge protection, övriga relevanta säkerhetsjobb, mergeability och review-trådar igen.
 
 När ändringen påverkar Cloudflare bindings, secrets, routes, cron eller annan live-konfiguration ska den deployade konfigurationen verifieras efter merge/deploy. För produktionsändringar innebär det normalt en grön Workers Builds-run på den mergade `main`-SHA:n där strict deploy och `/ready`-verifieringen har passerat.
 
 ## Definition of done
 
-En PR-baserad uppgift är klar först när implementationen är färdig, diffen självgranskad, all review-feedback utvärderad, required `CI / required` är grön, relevanta review-trådar är resolved och auto-merge har mergat PR:n eller en konkret extern blockerare är verifierad och rapporterad.
+En PR-baserad uppgift är klar först när implementationen är färdig, diffen självgranskad, all review-feedback utvärderad, `CI / required` och `scan-pr / osv-scan` är gröna för exakt final HEAD, CodeQL merge protection är godkänd, relevanta review-trådar är resolved, live-rulesetet fortfarande matchar policyn och auto-merge har mergat PR:n eller en konkret extern blockerare är verifierad och rapporterad.

@@ -3,7 +3,6 @@
 inheritance: true
 
 reviews:
-  review_progress: false
   commit_status: true
   fail_commit_status: true
   auto_review:
