@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "check": "npm test && npm run typecheck && npm run validate:bindings && npm run validate:worker",
-    "predeploy": "npm run check",
-    "deploy": "wrangler deploy",
-    "test": "tsx --test test/*.test.ts",
+    "deploy": "wrangler deploy --strict",
+    "verify:production": "node scripts/verify-production.mjs",
+    "test": "tsx --test test/*.test.ts && node --test test/verify-production.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate:bindings": "node scripts/validate-bindings.mjs",
     "validate:worker": "wrangler deploy --dry-run"

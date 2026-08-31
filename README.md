@@ -52,6 +52,25 @@ Flödet är:
 
 Repository-lokala branchpooler, `sync-pool`, PR-watchdogs och remediation-bridge-workflows ingår inte längre i den här modellen.
 
+## Production deploy
+
+Cloudflare Workers Builds är enda normala produktionsdeploykedjan från `main`. GitHub Actions validerar före merge men deployar inte produktion.
+
+Production trigger ska använda:
+
+- Production branch: `main`
+- Root directory: `/`
+- Build command: tomt
+- Non-production branch builds: avstängt
+- Deploy command: `npm run deploy && npm run verify:production`
+- Build watch paths: `src/**`, `scripts/verify-production.mjs`, `wrangler.jsonc`, `package.json`, `package-lock.json`, `tsconfig.json`
+
+`npm run deploy` är direkt `wrangler deploy --strict`. Durable Object-migrationerna ligger nativt i `wrangler.jsonc` och följer Worker-deployen; det finns ingen separat migrationswrapper.
+
+`npm run verify:production` kontrollerar `https://skvallerbyttan.denied.se/ready` och kräver HTTP 200 samt exakt readiness-payload `{ "ok": true, "service": "skvallerbyttan", "check": "configuration" }`. Readiness verifierar därmed att nödvändiga secrets, vars, Send Email-binding och Durable Object-binding finns utan att anropa GitHub API.
+
+Det finns ingen repo-lokal deployorkestrerare och ingen duplicerad Workers Builds branch/SHA-logik. Production branch, root directory, watch paths och kommandosekvens ägs av Cloudflare Workers Builds. `wrangler.jsonc` är source of truth för bindings, custom domain, cron, Durable Object-migrationer och observability. `workers_dev` och `preview_urls` är explicit avstängda så produktion bara exponeras via den deklarerade custom domainen.
+
 ## GitHub Actions
 
 Repositoryts live-ruleset kräver exakt status context `CI / required`.
