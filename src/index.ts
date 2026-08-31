@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { retryOnceAfterUnauthorized } from "./auth-retry";
+import { codeScanningAlertCreatesIssue } from "./code-scanning-issue-policy";
 import type { SkvallerbyttanBindings } from "./env";
 import { ExpiringValueCache } from "./expiring-value-cache";
 import { MalwareAlertCache } from "./malware-alert-cache";
@@ -243,6 +244,22 @@ async function closeRemediatedIssue(env: Env, repo: string, issueNumber: number,
   });
 }
 
+async function closeObservabilityOnlyIssue(env: Env, repo: string, issueNumber: number, alert: AlertReference): Promise<void> {
+  const marker = `skvallerbyttan-observability-only:${alert.type}:${alert.number}`;
+  await github(env, `/repos/${repo}/issues/${issueNumber}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      body: `<!-- ${marker} -->\nAlerten är fortfarande öppen i GitHub Code Scanning och förblir synlig där. Repositoryts verifierade container-policy hanterar Trivy OS-baseline via baseline-vs-PR-gate, så ett separat remediation-issue skulle duplicera samma baseline och stängs som ej planerat.`,
+    }),
+  });
+  await github(env, `/repos/${repo}/issues/${issueNumber}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ state: "closed", state_reason: "not_planned" }),
+  });
+}
+
 async function reopenUnremediatedIssue(env: Env, repo: string, issueNumber: number, alert: AlertReference): Promise<void> {
   await github(env, `/repos/${repo}/issues/${issueNumber}/comments`, {
     method: "POST",
@@ -272,8 +289,13 @@ async function reconcileIssue(env: Env, issue: SecurityIssue): Promise<"closed" 
   const repo = repoFromApiUrl(issue.repository_url);
   const alert = alertReference(issue.body ?? "");
   if (!validOrgRepo(repo) || !alert) return "ignored";
-  const data = await (await github(env, alertApiPath(repo, alert))).json<{ state?: string }>();
+  const data = await (await github(env, alertApiPath(repo, alert))).json<{ state?: string; rule?: { id?: string; name?: string }; tool?: { name?: string } }>();
   const state = String(data.state ?? "").toLowerCase();
+  if (alert.type === "code-scanning" && state === "open" && !codeScanningAlertCreatesIssue(repo, data)) {
+    if (issue.state === "closed") return "synced";
+    await closeObservabilityOnlyIssue(env, repo, issue.number, alert);
+    return "closed";
+  }
   const desiredState = reconciledIssueState(alert, state);
   if (desiredState === "closed") {
     if (issue.state === "closed") return "synced";
@@ -340,8 +362,9 @@ async function isMalware(env: Env, repo: string, alertNumber: number, cache?: Ma
   return (await loadMalwareAlertNumbers(env, repo)).includes(alertNumber);
 }
 
-function codeScanningIssue(alert: any): IssueSpec | null {
+function codeScanningIssue(repo: string, alert: any): IssueSpec | null {
   if (alert.state !== "open" || !Number.isSafeInteger(alert.number)) return null;
+  if (!codeScanningAlertCreatesIssue(repo, alert)) return null;
   const severity = String(alert.rule?.security_severity_level ?? "").toLowerCase();
   if (!ISSUE_SEVERITIES.has(severity)) return null;
   const rule = alert.rule?.name ?? alert.rule?.id ?? "Code scanning alert";
@@ -473,7 +496,7 @@ async function runBackfill(env: Env): Promise<void> {
     env,
     "code_scanning",
     `/orgs/${encodeURIComponent(ORG)}/code-scanning/alerts?state=open&per_page=100`,
-    async (_repo, alert) => codeScanningIssue(alert),
+    async (repo, alert) => codeScanningIssue(repo, alert),
   );
   const malwareCache = new MalwareAlertCache((repo) => loadMalwareAlertNumbers(env, repo));
   const dependabot = await backfillType(
@@ -541,7 +564,7 @@ export async function handleVerifiedWebhook(
     }
 
     const issue = event === "code_scanning_alert"
-      ? codeScanningIssue(alert)
+      ? codeScanningIssue(repo, alert)
       : event === "dependabot_alert"
         ? await dependabotIssue(env, repo, alert)
         : (action === "created" || action === "reopened") ? secretScanningIssue({ ...alert, state: "open" }) : null;
