@@ -9,7 +9,7 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 - `src/worker.ts` är Worker-entrypoint och ansvarar för webhook-gräns, persistent idempotens och runtime-readiness.
 - `src/index.ts` hanterar GitHub organization-webhooks, backfillar alerts och reconciliar security Issues.
 - `.github/workflows/codex-security-dispatch.yml` är den enda GitHub-side writer som skapar automatiska Codex-remediation-branches och PR:er i organisationen.
-- `wrangler.jsonc` beskriver Worker-bindings, routes och Worker-cron.
+- `wrangler.jsonc` beskriver Worker-bindings, routes, Worker-cron och Durable Object-migrationer.
 - Credentials och privata nycklar får aldrig committas eller loggas.
 
 ## Brancher och pull requests
@@ -60,18 +60,25 @@ Om GitHub vägrar armera eller utföra auto-merge ska den konkreta blockeraren i
 - Secret Scanning-innehåll får aldrig kopieras till Issue- eller e-posttext.
 - Per-repository Code Scanning-snapshotfiler ska inte användas som separat datakälla; Skvallerbyttan läser GitHubs alert-API centralt.
 
-## GitHub Actions
+## GitHub Actions och Cloudflare
 
 - `.github/workflows/ci.yml` producerar live-required context `CI / required`.
 - Required CI kör tester, typecheck, binding-validering, Wrangler dry-run och blockerar kvarvarande `.github/codex-dispatch/issue-*.md`.
 - `.github/workflows/osv-scanner.yml` är kompletterande säkerhetsverifiering och är inte en required context.
 - `pr-watchdog`, `sync-pool`, `scope-policy`, repository-local remediation-observer, bot-baserad review-auto-fix och Code Scanning-snapshot ska inte återinföras utan ett nytt verifierat behov och motsvarande live ruleset/design.
+- Cloudflare Workers Builds är enda normala produktionsdeploykedjan från `main`; GitHub Actions ska inte deploya produktion.
+- Production trigger ska använda branch `main`, repository-root `/`, tomt build command och avstängda non-production branch builds.
+- Workers Builds deploy command ska vara `npm run deploy && npm run verify:production`.
+- `deploy` ska vara direkt `wrangler deploy --strict`. Full `npm run check` hör till GitHubs merge-gate och ska inte dupliceras som npm `predeploy` i Workers Builds.
+- `scripts/verify-production.mjs` får endast verifiera `GET https://skvallerbyttan.denied.se/ready` och kräva HTTP 200 med exakt healthy configuration-payload. Scriptet får inte deploya, tolka Workers Builds branch/SHA eller bli en parallell kontrollplan.
+- Build watch paths ska vara `src/**`, `scripts/verify-production.mjs`, `wrangler.jsonc`, `package.json`, `package-lock.json` och `tsconfig.json`.
+- `wrangler.jsonc` är source of truth för bindings, custom domain, cron, Durable Object-migrationer, observability och publika Worker-ytor. `workers_dev` och `preview_urls` ska vara explicit avstängda.
 
 ## Verifiering
 
 Före PR: granska hela diffen mot `main` och kör relevant test/typecheck/binding-validering. Efter varje push: kontrollera aktuell HEAD, required CI, övriga relevanta säkerhetsjobb, mergeability och review-trådar igen.
 
-När ändringen påverkar Cloudflare bindings, secrets, routes, cron eller annan live-konfiguration ska den deployade konfigurationen verifieras efter merge/deploy.
+När ändringen påverkar Cloudflare bindings, secrets, routes, cron eller annan live-konfiguration ska den deployade konfigurationen verifieras efter merge/deploy. För produktionsändringar innebär det normalt en grön Workers Builds-run på den mergade `main`-SHA:n där strict deploy och `/ready`-verifieringen har passerat.
 
 ## Definition of done
 
