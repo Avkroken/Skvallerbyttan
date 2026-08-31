@@ -17,6 +17,194 @@ async function collectSecurityIssues(github, activeRepos) {
   return issues;
 }
 
+function gateFailure(reason, details = {}) {
+  return { ok: false, reason, ...details };
+}
+
+function statusContextName(context) {
+  return context.__typename === 'CheckRun' ? context.name : context.context;
+}
+
+function statusContextSucceeded(context) {
+  if (context.__typename === 'CheckRun') {
+    return context.status === 'COMPLETED' && context.conclusion === 'SUCCESS';
+  }
+  return context.__typename === 'StatusContext' && context.state === 'SUCCESS';
+}
+
+function requiredStatusCheckFailure(required, contexts) {
+  const named = contexts.filter(context => statusContextName(context) === required.context);
+  if (named.length === 0) return `required-check-missing:${required.context}`;
+
+  if (required.integration_id) {
+    const matchingChecks = named.filter(context =>
+      context.__typename === 'CheckRun' &&
+      Number(context.app?.databaseId || 0) === Number(required.integration_id)
+    );
+    if (matchingChecks.length === 0) {
+      return `required-check-wrong-integration:${required.context}`;
+    }
+    if (matchingChecks.some(context => !statusContextSucceeded(context))) {
+      return `required-check-not-success:${required.context}`;
+    }
+    return null;
+  }
+
+  if (named.some(context => !statusContextSucceeded(context))) {
+    return `required-check-not-success:${required.context}`;
+  }
+  return null;
+}
+
+async function verifyMergeGates(github, owner, repo, pullNumber) {
+  try {
+    const fresh = (await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })).data;
+    if (fresh.state !== 'open') return gateFailure('pull-request-not-open');
+
+    const headSha = fresh.head.sha;
+    const baseSha = fresh.base.sha;
+    const base = fresh.base.ref;
+
+    const rules = await github.paginate(
+      'GET /repos/{owner}/{repo}/rules/branches/{branch}',
+      { owner, repo, branch: base, per_page: 100 }
+    );
+
+    const pullRules = rules.filter(rule => rule.type === 'pull_request');
+    if (pullRules.length === 0) return gateFailure('pull-request-rule-missing', { headSha, baseSha });
+
+    for (const rule of pullRules) {
+      const parameters = rule.parameters || {};
+      if (parameters.allowed_merge_methods && !parameters.allowed_merge_methods.includes('squash')) {
+        return gateFailure('squash-not-allowed', { headSha, baseSha });
+      }
+      const requiredReviewers = parameters.required_reviewers || [];
+      if (
+        Number(parameters.required_approving_review_count || 0) > 0 ||
+        parameters.require_code_owner_review ||
+        parameters.require_last_push_approval ||
+        requiredReviewers.some(reviewer => Number(reviewer.minimum_approvals || 0) > 0)
+      ) {
+        return gateFailure('manual-approval-gate-present', { headSha, baseSha });
+      }
+    }
+
+    const unsupported = rules.find(rule =>
+      ['merge_queue', 'required_deployments', 'workflows', 'required_signatures'].includes(rule.type)
+    );
+    if (unsupported) {
+      return gateFailure(`unsupported-merge-gate:${unsupported.type}`, { headSha, baseSha });
+    }
+
+    const statusRules = rules.filter(rule => rule.type === 'required_status_checks');
+    if (statusRules.some(rule => rule.parameters?.strict_required_status_checks_policy)) {
+      const comparison = await github.rest.repos.compareCommitsWithBasehead({
+        owner,
+        repo,
+        basehead: `${baseSha}...${headSha}`,
+      });
+      if (!['ahead', 'identical'].includes(comparison.data.status)) {
+        return gateFailure('head-not-current-with-base', { headSha, baseSha });
+      }
+    }
+
+    const snapshot = await github.graphql(`
+      query($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) {
+            headRefOid
+            reviewThreads(first: 100) {
+              nodes { isResolved }
+              pageInfo { hasNextPage }
+            }
+            commits(last: 1) {
+              nodes {
+                commit {
+                  oid
+                  statusCheckRollup {
+                    contexts(first: 100) {
+                      nodes {
+                        __typename
+                        ... on CheckRun {
+                          name
+                          status
+                          conclusion
+                          app { databaseId }
+                        }
+                        ... on StatusContext {
+                          context
+                          state
+                        }
+                      }
+                      pageInfo { hasNextPage }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `, { owner, repo, number: pullNumber });
+
+    const pull = snapshot.repository?.pullRequest;
+    if (!pull || pull.headRefOid !== headSha) {
+      return gateFailure('head-changed-during-verification', { headSha, baseSha });
+    }
+
+    const commit = pull.commits?.nodes?.[0]?.commit;
+    if (!commit || commit.oid !== headSha) {
+      return gateFailure('head-status-rollup-missing', { headSha, baseSha });
+    }
+
+    const contextConnection = commit.statusCheckRollup?.contexts;
+    const contexts = contextConnection?.nodes || [];
+    if (contextConnection?.pageInfo?.hasNextPage) {
+      return gateFailure('status-context-pagination-exceeded', { headSha, baseSha });
+    }
+
+    const requiredChecks = statusRules.flatMap(rule => rule.parameters?.required_status_checks || []);
+    const seenChecks = new Set();
+    for (const required of requiredChecks) {
+      const key = `${required.context}:${required.integration_id || 0}`;
+      if (seenChecks.has(key)) continue;
+      seenChecks.add(key);
+      const failure = requiredStatusCheckFailure(required, contexts);
+      if (failure) return gateFailure(failure, { headSha, baseSha });
+    }
+
+    const codeScanningTools = rules
+      .filter(rule => rule.type === 'code_scanning')
+      .flatMap(rule => rule.parameters?.code_scanning_tools || []);
+    for (const tool of codeScanningTools) {
+      const named = contexts.filter(context => statusContextName(context) === tool.tool);
+      if (named.length === 0 || named.some(context => !statusContextSucceeded(context))) {
+        return gateFailure(`code-scanning-not-success:${tool.tool}`, { headSha, baseSha });
+      }
+    }
+
+    if (pullRules.some(rule => rule.parameters?.required_review_thread_resolution)) {
+      if (pull.reviewThreads?.pageInfo?.hasNextPage) {
+        return gateFailure('review-thread-pagination-exceeded', { headSha, baseSha });
+      }
+      if ((pull.reviewThreads?.nodes || []).some(thread => !thread.isResolved)) {
+        return gateFailure('unresolved-review-thread', { headSha, baseSha });
+      }
+    }
+
+    const end = (await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })).data;
+    if (end.head.sha !== headSha || end.base.sha !== baseSha) {
+      return gateFailure('head-or-base-changed-during-verification', { headSha, baseSha });
+    }
+
+    return { ok: true, headSha, baseSha };
+  } catch (error) {
+    return gateFailure(
+      `merge-gate-verification-error:${String(error.message || error).slice(0, 300)}`
+    );
+  }
+}
+
 async function run({ github, context, core }) {
   const org = context.repo.owner;
   const activeMarker = '<!-- skvallerbyttan-remediation -->';
@@ -121,18 +309,36 @@ async function run({ github, context, core }) {
     `, { pullRequestId: pr.node_id });
   }
 
-  async function markReadyAndArm(owner, repo, pr, issueNumber) {
-    if (pr.draft) {
+  async function markReadyAndArm(owner, repo, pr, issueNumber, verifiedGate) {
+    const before = (await github.rest.pulls.get({ owner, repo, pull_number: pr.number })).data;
+    if (
+      before.head.sha !== verifiedGate.headSha ||
+      before.base.sha !== verifiedGate.baseSha
+    ) {
+      core.warning(`${owner}/${repo}#${pr.number}: HEAD eller base ändrades efter gate-verifiering; PR:n lämnas draft.`);
+      await keepDraft(before);
+      return false;
+    }
+
+    if (before.draft) {
       await github.graphql(`
         mutation($pullRequestId: ID!) {
           markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
             pullRequest { number isDraft }
           }
         }
-      `, { pullRequestId: pr.node_id });
+      `, { pullRequestId: before.node_id });
     }
 
     const fresh = (await github.rest.pulls.get({ owner, repo, pull_number: pr.number })).data;
+    if (
+      fresh.head.sha !== verifiedGate.headSha ||
+      fresh.base.sha !== verifiedGate.baseSha
+    ) {
+      core.warning(`${owner}/${repo}#${pr.number}: HEAD eller base ändrades innan auto-merge kunde armeras; PR:n återgår till draft.`);
+      await keepDraft(fresh);
+      return false;
+    }
     if (fresh.auto_merge) return true;
 
     try {
@@ -151,7 +357,7 @@ async function run({ github, context, core }) {
         repo,
         pr.number,
         marker,
-        `Seed-filen är borta och alert-relevant scope är verifierad, men GitHub nekade att armera auto-merge: ${String(error.message || error).slice(0, 500)}. Direkt merge används inte som fallback; PR:n lämnas öppen för normal repository-policy.`
+        `Alla verifierbara merge-gates var gröna för HEAD ${verifiedGate.headSha}, men GitHub nekade att armera auto-merge: ${String(error.message || error).slice(0, 500)}. Direkt merge används inte som fallback; PR:n lämnas öppen för normal repository-policy.`
       );
       core.warning(`${owner}/${repo}#${pr.number}: auto-merge kunde inte armeras: ${error.message}`);
       return false;
@@ -300,14 +506,28 @@ async function run({ github, context, core }) {
         continue;
       }
 
-      const armed = await markReadyAndArm(owner, repo, pr, issueNumber);
+      const gate = await verifyMergeGates(github, owner, repo, pr.number);
+      if (!gate.ok) {
+        await keepDraft(pr);
+        await ensureComment(
+          owner,
+          repo,
+          pr.number,
+          `<!-- skvallerbyttan-merge-gates-blocked:${issueNumber}:${gate.headSha || 'unknown'} -->`,
+          `PR:n hålls som draft och auto-merge är avstängd tills målrepositoryts merge-gates är verifierade för exakt aktuell HEAD. Blockerare: \`${gate.reason}\`.`
+        );
+        core.warning(`${repository.full_name}#${pr.number}: merge-gates blockerar (${gate.reason}).`);
+        continue;
+      }
+
+      const armed = await markReadyAndArm(owner, repo, pr, issueNumber, gate);
       if (armed) {
         await ensureComment(
           owner,
           repo,
           pr.number,
           `<!-- skvallerbyttan-codex-finalized:${issueNumber} -->`,
-          `Seed-filen är borttagen och alert-relevant path \`${scope.matchedPath}\` är ändrad. PR:n är ready-for-review och squash auto-merge är armerad; ordinarie required CI och review-thread-resolution är fortsatt blockerande.`
+          `Seed-filen är borttagen, alert-relevant path \`${scope.matchedPath}\` är ändrad och alla verifierbara merge-gates är gröna för HEAD ${gate.headSha}. PR:n är ready-for-review och squash auto-merge är armerad.`
         );
       }
     }
@@ -431,4 +651,4 @@ async function run({ github, context, core }) {
   }
 }
 
-module.exports = { collectSecurityIssues, isSecurityIssue, run };
+module.exports = { collectSecurityIssues, isSecurityIssue, requiredStatusCheckFailure, run, verifyMergeGates };
