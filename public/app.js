@@ -83,7 +83,7 @@ function actionText(actions) {
 
 function renderRepoRows(data) {
   $("#repo-rows").innerHTML = data.repositories.map((repo) => `
-    <tr data-repo="${esc(repo.name)}" tabindex="0">
+    <tr data-repo="${esc(repo.name)}" tabindex="0" role="button" aria-label="Visa detaljer för ${esc(repo.name)}">
       <td><span class="repo-name">${esc(repo.name)}</span><span class="repo-meta">${esc(repo.language || "—")} · ${esc(repo.visibility)}</span></td>
       <td>${fmtInt(repo.attentionScore)}</td>
       <td>${securityText(repo)}</td>
@@ -97,7 +97,9 @@ function renderRepoRows(data) {
     const open = () => loadRepo(row.dataset.repo);
     row.addEventListener("click", open);
     row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") open();
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      open();
     });
   });
 }

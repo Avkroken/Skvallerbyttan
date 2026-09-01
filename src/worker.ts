@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
+import { GitHubApiError } from "./github";
 
 const CACHE_SECONDS = 300;
 const REPO_NAME = /^[A-Za-z0-9_.-]+$/;
@@ -180,6 +181,13 @@ export default {
         headers,
       });
     } catch (error) {
+      if (error instanceof GitHubApiError && (error.status === 404 || error.status === 403)) {
+        return json(
+          { error: error.status === 404 ? "repository not found" : "repository access denied" },
+          error.status,
+          { "Cache-Control": "no-store" },
+        );
+      }
       console.error("dashboard request failed", {
         path: url.pathname,
         error: error instanceof Error ? error.message : String(error),

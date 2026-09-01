@@ -38,6 +38,7 @@ th, td { padding: 13px 14px; border-bottom: 1px solid #1c2532; text-align: left;
 th { color: #94a3b8; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; background: #111720; position: sticky; top: 0; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: #111923; }
+tbody tr:focus-visible { outline: 2px solid #7dd3fc; outline-offset: -2px; }
 tbody tr:last-child td { border-bottom: 0; }
 .repo-name { font-weight: 730; }
 .repo-meta { display: block; color: #77869a; margin-top: 3px; font-size: .72rem; }

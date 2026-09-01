@@ -14,6 +14,13 @@ export type OptionalResult<T> =
 
 export type ListResult<T> = OptionalResult<T[]> & { truncated: boolean };
 
+export class GitHubApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "GitHubApiError";
+  }
+}
+
 function base64url(input: string | ArrayBuffer): string {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : new Uint8Array(input);
   let binary = "";
@@ -173,7 +180,10 @@ export async function githubResponse(
 export async function githubJson<T>(env: Env, path: string): Promise<T> {
   const response = await githubResponse(env, path);
   if (!response.ok) {
-    throw new Error(`GitHub API ${response.status}: ${(await response.text()).slice(0, 300)}`);
+    throw new GitHubApiError(
+      response.status,
+      `GitHub API ${response.status}: ${(await response.text()).slice(0, 300)}`,
+    );
   }
   return response.json<T>();
 }

@@ -171,7 +171,7 @@ async function getPulls(env: Env, fullName: string): Promise<{
   status: number;
   reason?: string;
 }> {
-  const path = `/repos/${fullName}/pulls?state=open&sort=updated&direction=desc&per_page=100`;
+  const path = `/repos/${fullName}/pulls?state=open&sort=updated&direction=asc&per_page=100`;
   const response = await githubResponse(env, path);
   if (!response.ok) return {
     available: false,
@@ -375,14 +375,17 @@ export async function getRepositoryDetail(env: Env, repoName: string): Promise<R
       available: pulls.available,
       count: pulls.available ? pulls.count : null,
       stale: pulls.available ? pulls.stale : null,
-      open: pulls.pulls.slice(0, 50).map((pull) => ({
-        number: pull.number ?? null,
-        title: pull.title ?? null,
-        draft: Boolean(pull.draft),
-        author: pull.user?.login ?? null,
-        updatedAt: pull.updated_at ?? null,
-        url: pull.html_url ?? null,
-      })),
+      open: [...pulls.pulls]
+        .sort((left, right) => Date.parse(right.updated_at ?? "") - Date.parse(left.updated_at ?? ""))
+        .slice(0, 50)
+        .map((pull) => ({
+          number: pull.number ?? null,
+          title: pull.title ?? null,
+          draft: Boolean(pull.draft),
+          author: pull.user?.login ?? null,
+          updatedAt: pull.updated_at ?? null,
+          url: pull.html_url ?? null,
+        })),
     },
     security: {
       codeScanning: code.available ? { count: code.value.length, severities: severityCounts(code.value, (item) => item.rule?.security_severity_level || item.rule?.severity), truncated: code.truncated } : null,
