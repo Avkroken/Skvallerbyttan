@@ -62,13 +62,12 @@ jobs:
                 if (pull.head?.repo?.full_name !== `${owner}/${repo}`) continue;
 
                 const number = pull.number;
-                let current = pull;
 
                 try {
                   let comparison = await github.rest.repos.compareCommitsWithBasehead({
                     owner,
                     repo,
-                    basehead: `${current.base.sha}...${current.head.sha}`,
+                    basehead: `${pull.base.sha}...${pull.head.sha}`,
                   });
 
                   if (comparison.data.behind_by === 0) {
@@ -84,25 +83,21 @@ jobs:
                     owner,
                     repo,
                     pull_number: number,
-                    expected_head_sha: current.head.sha,
+                    expected_head_sha: pull.head.sha,
                   });
 
                   let currentWithBase = false;
                   for (let attempt = 1; attempt <= 20; attempt += 1) {
                     await sleep(3000);
-                    const response = await github.rest.pulls.get({ owner, repo, pull_number: number });
-                    current = response.data;
-
-                    if (current.state !== 'open') {
-                      core.info(`${owner}/${repo}#${number}: PR:n stängdes under uppdateringen.`);
-                      currentWithBase = true;
-                      break;
-                    }
+                    const [baseRef, headRef] = await Promise.all([
+                      github.rest.git.getRef({ owner, repo, ref: `heads/${base}` }),
+                      github.rest.git.getRef({ owner, repo, ref: `heads/${pull.head.ref}` }),
+                    ]);
 
                     comparison = await github.rest.repos.compareCommitsWithBasehead({
                       owner,
                       repo,
-                      basehead: `${current.base.sha}...${current.head.sha}`,
+                      basehead: `${baseRef.data.object.sha}...${headRef.data.object.sha}`,
                     });
 
                     if (comparison.data.behind_by === 0) {
@@ -116,10 +111,8 @@ jobs:
                     continue;
                   }
 
-                  if (current.state !== 'open') continue;
-
-                  if (current.auto_merge == null) {
-                    core.info(`${owner}/${repo}#${number}: återarmerar native squash auto-merge.`);
+                  core.info(`${owner}/${repo}#${number}: säkerställer native squash auto-merge efter branch-update.`);
+                  try {
                     await github.graphql(
                       `mutation($pullRequestId: ID!) {
                         enablePullRequestAutoMerge(input: {
@@ -129,10 +122,14 @@ jobs:
                           pullRequest { number }
                         }
                       }`,
-                      { pullRequestId: current.node_id },
+                      { pullRequestId: pull.node_id },
                     );
-                  } else {
-                    core.info(`${owner}/${repo}#${number}: aktuell och fortsatt armerad.`);
+                  } catch (error) {
+                    if (/already.*enabled|auto.?merge.*already/i.test(error.message)) {
+                      core.info(`${owner}/${repo}#${number}: auto-merge var redan fortsatt armerad.`);
+                    } else {
+                      core.warning(`${owner}/${repo}#${number}: kunde inte säkerställa auto-merge: ${error.message}`);
+                    }
                   }
                 } catch (error) {
                   core.warning(`${owner}/${repo}#${number}: underhåll misslyckades: ${error.message}`);
