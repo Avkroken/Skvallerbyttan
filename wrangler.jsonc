@@ -52,9 +52,6 @@
       "custom_domain": true
     }
   ],
-  "triggers": {
-    "crons": ["17 * * * *"]
-  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
