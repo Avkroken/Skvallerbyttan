@@ -10,18 +10,18 @@ function readyResponse(body, status = 200, contentType = "application/json; char
   });
 }
 
-test("production readiness requires the exact healthy configuration payload", async () => {
+test("production readiness requires the exact decommissioned payload", async () => {
   await validateProductionResponse(readyResponse({
     ok: true,
     service: "skvallerbyttan",
-    check: "configuration",
+    check: "decommissioned",
   }));
 
   await assert.rejects(
     validateProductionResponse(readyResponse({
       ok: false,
       service: "skvallerbyttan",
-      check: "configuration",
+      check: "decommissioned",
     }, 503)),
     /expected 200/,
   );
@@ -30,6 +30,15 @@ test("production readiness requires the exact healthy configuration payload", as
     validateProductionResponse(readyResponse({
       ok: true,
       service: "wrong-service",
+      check: "decommissioned",
+    })),
+    /unexpected readiness payload/,
+  );
+
+  await assert.rejects(
+    validateProductionResponse(readyResponse({
+      ok: true,
+      service: "skvallerbyttan",
       check: "configuration",
     })),
     /unexpected readiness payload/,
