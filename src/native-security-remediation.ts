@@ -43,22 +43,22 @@ export function dependabotHasPatch(alert: unknown): boolean {
   return typeof identifier === "string" && identifier.trim().length > 0;
 }
 
-async function currentAlert(request: GithubRequest, path: string, fallback: unknown): Promise<unknown> {
+async function currentAlert(request: GithubRequest, path: string): Promise<unknown | null> {
   try {
     const response = await request(path);
     return await response.json<unknown>();
   } catch {
-    return fallback;
+    return null;
   }
 }
 
 async function assignCopilot(
   request: GithubRequest,
   path: string,
-  fallbackAlert: unknown,
   dependabot: boolean,
 ): Promise<NativeRemediationResult> {
-  const alert = await currentAlert(request, path, fallbackAlert);
+  const alert = await currentAlert(request, path);
+  if (!alert) return { handled: false, reason: "fallback" };
   if (hasCopilotAssignee(alert)) return { handled: true, reason: "copilot-agent" };
 
   const assignees = assigneeLogins(alert);
@@ -90,7 +90,7 @@ export async function tryNativeCodeScanningRemediation(
 ): Promise<NativeRemediationResult> {
   const number = Number(alert?.number);
   if (!Number.isSafeInteger(number) || number <= 0) return { handled: false, reason: "fallback" };
-  return assignCopilot(request, `/repos/${repo}/code-scanning/alerts/${number}`, alert, false);
+  return assignCopilot(request, `/repos/${repo}/code-scanning/alerts/${number}`, false);
 }
 
 export async function tryNativeDependabotRemediation(
@@ -114,5 +114,5 @@ export async function tryNativeDependabotRemediation(
     }
   }
 
-  return assignCopilot(request, `/repos/${repo}/dependabot/alerts/${number}`, alert, true);
+  return assignCopilot(request, `/repos/${repo}/dependabot/alerts/${number}`, true);
 }
