@@ -34,6 +34,40 @@ function makeCore() {
   };
 }
 
+function makePaginate({
+  listForOrg,
+  listPulls,
+  repositoryPages,
+  pullPages,
+  onRepositoryPage,
+  onPullPage,
+}) {
+  const paginate = async () => {
+    throw new Error('direct paginate should not be used');
+  };
+
+  paginate.iterator = (method) => {
+    const pages = method === listForOrg ? repositoryPages : pullPages;
+    const onPage = method === listForOrg ? onRepositoryPage : onPullPage;
+    let index = 0;
+
+    return {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      async next() {
+        if (index >= pages.length) return { done: true, value: undefined };
+        onPage?.(index);
+        const value = { data: pages[index] };
+        index += 1;
+        return { done: false, value };
+      },
+    };
+  };
+
+  return paginate;
+}
+
 test('bounded workers stop before the shared run deadline with many slow PRs', async () => {
   const listForOrg = () => {};
   const listPulls = () => {};
@@ -44,13 +78,12 @@ test('bounded workers stop before the shared run deadline with many slow PRs', a
   let graphQlCalls = 0;
 
   const github = {
-    paginate: async (method) => {
-      if (method === listForOrg) {
-        return [{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }];
-      }
-      if (method === listPulls) return pulls;
-      throw new Error('unexpected paginate method');
-    },
+    paginate: makePaginate({
+      listForOrg,
+      listPulls,
+      repositoryPages: [[{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }]],
+      pullPages: [pulls],
+    }),
     rest: {
       repos: {
         listForOrg,
@@ -94,6 +127,81 @@ test('bounded workers stop before the shared run deadline with many slow PRs', a
   assert.ok(core.messages.warning.some((message) => message.includes('4/8')));
 });
 
+test('repository pagination stops before requesting another page after the deadline', async () => {
+  const listForOrg = () => {};
+  const listPulls = () => {};
+  const core = makeCore();
+  let clock = 0;
+  let repositoryPageCalls = 0;
+
+  const github = {
+    paginate: makePaginate({
+      listForOrg,
+      listPulls,
+      repositoryPages: [
+        [{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }],
+        [{ name: 'Otherrepo', default_branch: 'main', archived: false, disabled: false }],
+      ],
+      pullPages: [[]],
+      onRepositoryPage: () => {
+        repositoryPageCalls += 1;
+        clock = 100;
+      },
+    }),
+    rest: {
+      repos: { listForOrg },
+      pulls: { list: listPulls },
+    },
+  };
+
+  await runMaintenance({
+    github,
+    core,
+    owner: 'Avkroken',
+    now: () => clock,
+    runBudgetMs: 100,
+  });
+
+  assert.equal(repositoryPageCalls, 1);
+  assert.ok(core.messages.warning.some((message) => message.includes('repository-listningen')));
+});
+
+test('PR pagination stops before requesting another page after the deadline', async () => {
+  const listForOrg = () => {};
+  const listPulls = () => {};
+  const core = makeCore();
+  let clock = 0;
+  let pullPageCalls = 0;
+
+  const github = {
+    paginate: makePaginate({
+      listForOrg,
+      listPulls,
+      repositoryPages: [[{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }]],
+      pullPages: [[makePull(1)], [makePull(2)]],
+      onPullPage: () => {
+        pullPageCalls += 1;
+        clock = 100;
+      },
+    }),
+    rest: {
+      repos: { listForOrg },
+      pulls: { list: listPulls },
+    },
+  };
+
+  await runMaintenance({
+    github,
+    core,
+    owner: 'Avkroken',
+    now: () => clock,
+    runBudgetMs: 100,
+  });
+
+  assert.equal(pullPageCalls, 1);
+  assert.ok(core.messages.warning.some((message) => message.includes('PR-listningen')));
+});
+
 test('does not re-arm a PR that stops qualifying after the branch update', async () => {
   const listForOrg = () => {};
   const listPulls = () => {};
@@ -104,13 +212,12 @@ test('does not re-arm a PR that stops qualifying after the branch update', async
   let graphQlCalls = 0;
 
   const github = {
-    paginate: async (method) => {
-      if (method === listForOrg) {
-        return [{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }];
-      }
-      if (method === listPulls) return [makePull(1)];
-      throw new Error('unexpected paginate method');
-    },
+    paginate: makePaginate({
+      listForOrg,
+      listPulls,
+      repositoryPages: [[{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }]],
+      pullPages: [[makePull(1)]],
+    }),
     rest: {
       repos: {
         listForOrg,
@@ -172,13 +279,12 @@ test('re-arms a still-qualified PR only after its branch update is current', asy
   let graphQlCalls = 0;
 
   const github = {
-    paginate: async (method) => {
-      if (method === listForOrg) {
-        return [{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }];
-      }
-      if (method === listPulls) return [makePull(1)];
-      throw new Error('unexpected paginate method');
-    },
+    paginate: makePaginate({
+      listForOrg,
+      listPulls,
+      repositoryPages: [[{ name: 'Testrepo', default_branch: 'main', archived: false, disabled: false }]],
+      pullPages: [[makePull(1)]],
+    }),
     rest: {
       repos: {
         listForOrg,
@@ -220,4 +326,4 @@ test('re-arms a still-qualified PR only after its branch update is current', asy
   });
 
   assert.equal(graphQlCalls, 1);
-}
+});
