@@ -16,6 +16,25 @@
     "SKVALLERBYTTAN_DASHBOARD_USERNAME": "avkroken",
     "SKVALLERBYTTAN_ORG": "Avkroken"
   },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SecurityAlertIssueLock"]
+    },
+    {
+      "tag": "v2",
+      "renamed_classes": [
+        {
+          "from": "SecurityAlertIssueLock",
+          "to": "SkvallerbyttanIssueLock"
+        }
+      ]
+    },
+    {
+      "tag": "v3-dashboard",
+      "deleted_classes": ["SkvallerbyttanIssueLock"]
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
