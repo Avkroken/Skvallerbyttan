@@ -4,6 +4,7 @@ import { codeScanningAlertCreatesIssue } from "./code-scanning-issue-policy";
 import type { SkvallerbyttanBindings } from "./env";
 import { ExpiringValueCache } from "./expiring-value-cache";
 import { MalwareAlertCache } from "./malware-alert-cache";
+import { tryNativeCodeScanningRemediation, tryNativeDependabotRemediation } from "./native-security-remediation";
 import { alertApiPath, alertIsRemediated, alertReference, assignmentAllowed, needsAssignee, reconciledIssueState, type AlertReference } from "./reconciliation";
 import { verifyWebhookSignature } from "./webhook-security";
 
@@ -223,6 +224,21 @@ async function createIssue(env: Env, repo: string, issue: IssueSpec): Promise<"c
   }
 }
 
+async function triggerCentralRemediation(env: Env): Promise<void> {
+  try {
+    await github(env, `/repos/${ORG}/Skvallerbyttan/actions/workflows/codex-security-dispatch.yml/dispatches`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ref: "main" }),
+    });
+    console.log("skvallerbyttan fallback dispatcher triggered");
+  } catch (error) {
+    console.warn("skvallerbyttan immediate fallback dispatch unavailable; scheduled dispatcher remains active", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function repoFromApiUrl(repositoryUrl: string): string {
   const prefix = "https://api.github.com/repos/";
   return repositoryUrl.startsWith(prefix) ? repositoryUrl.slice(prefix.length) : "";
@@ -362,16 +378,27 @@ async function isMalware(env: Env, repo: string, alertNumber: number, cache?: Ma
   return (await loadMalwareAlertNumbers(env, repo)).includes(alertNumber);
 }
 
-function codeScanningIssue(repo: string, alert: any): IssueSpec | null {
+async function codeScanningIssue(env: Env, repo: string, alert: any): Promise<IssueSpec | null> {
   if (alert.state !== "open" || !Number.isSafeInteger(alert.number)) return null;
   if (!codeScanningAlertCreatesIssue(repo, alert)) return null;
   const severity = String(alert.rule?.security_severity_level ?? "").toLowerCase();
   if (!ISSUE_SEVERITIES.has(severity)) return null;
+
+  const native = await tryNativeCodeScanningRemediation((path, init) => github(env, path, init), repo, alert);
+  if (native.handled) {
+    console.log("skvallerbyttan code scanning alert delegated natively", {
+      repo,
+      alertNumber: alert.number,
+      reason: native.reason,
+    });
+    return null;
+  }
+
   const rule = alert.rule?.name ?? alert.rule?.id ?? "Code scanning alert";
   return {
     marker: `skvallerbyttan-alert:code-scanning:${alert.number}`,
     title: `[Security][Code scanning][${severity.toUpperCase()}] ${rule}`,
-    body: `Automatiskt skapat från ett öppet GitHub Code Scanning-alert.\n\n- **Severity:** ${severity.toUpperCase()}\n- **Rule:** ${rule}\n- **Alert:** ${alert.html_url ?? ""}`,
+    body: `Automatiskt skapat som fallback efter att GitHubs inbyggda remediation inte kunde användas för ett öppet Code Scanning-alert.\n\n- **Severity:** ${severity.toUpperCase()}\n- **Rule:** ${rule}\n- **Alert:** ${alert.html_url ?? ""}`,
   };
 }
 
@@ -380,13 +407,25 @@ async function dependabotIssue(env: Env, repo: string, alert: any, malwareCache?
   const malware = await isMalware(env, repo, alert.number, malwareCache);
   const severity = String(alert.security_advisory?.severity ?? alert.security_vulnerability?.severity ?? "unknown").toLowerCase();
   if (!malware && !ISSUE_SEVERITIES.has(severity)) return null;
+
+  const native = await tryNativeDependabotRemediation((path, init) => github(env, path, init), repo, alert, malware);
+  if (native.handled) {
+    console.log("skvallerbyttan dependabot alert delegated natively", {
+      repo,
+      alertNumber: alert.number,
+      reason: native.reason,
+      malware,
+    });
+    return null;
+  }
+
   const level = malware ? "MALWARE" : severity.toUpperCase();
   const pkg = alert.dependency?.package?.name ?? "unknown package";
   const summary = alert.security_advisory?.summary ?? (malware ? "Malicious dependency detected" : "Dependabot alert");
   return {
     marker: `skvallerbyttan-alert:dependabot:${alert.number}`,
     title: `[Security][Dependabot][${level}] ${pkg}: ${summary}`,
-    body: `Automatiskt skapat från ett öppet GitHub Dependabot-alert. Malware inkluderas alltid; övriga alerts kräver Medium eller högre.\n\n- **Severity/class:** ${level}\n- **Package:** ${pkg}\n- **Summary:** ${summary}\n- **Alert:** ${alert.html_url ?? ""}`,
+    body: `Automatiskt skapat som fallback efter att GitHubs inbyggda remediation inte kunde användas för ett öppet Dependabot-alert. Malware inkluderas alltid; övriga alerts kräver Medium eller högre.\n\n- **Severity/class:** ${level}\n- **Package:** ${pkg}\n- **Summary:** ${summary}\n- **Alert:** ${alert.html_url ?? ""}`,
   };
 }
 
@@ -496,7 +535,7 @@ async function runBackfill(env: Env): Promise<void> {
     env,
     "code_scanning",
     `/orgs/${encodeURIComponent(ORG)}/code-scanning/alerts?state=open&per_page=100`,
-    async (repo, alert) => codeScanningIssue(repo, alert),
+    async (repo, alert) => codeScanningIssue(env, repo, alert),
   );
   const malwareCache = new MalwareAlertCache((repo) => loadMalwareAlertNumbers(env, repo));
   const dependabot = await backfillType(
@@ -564,7 +603,7 @@ export async function handleVerifiedWebhook(
     }
 
     const issue = event === "code_scanning_alert"
-      ? codeScanningIssue(repo, alert)
+      ? await codeScanningIssue(env, repo, alert)
       : event === "dependabot_alert"
         ? await dependabotIssue(env, repo, alert)
         : (action === "created" || action === "reopened") ? secretScanningIssue({ ...alert, state: "open" }) : null;
@@ -576,6 +615,7 @@ export async function handleVerifiedWebhook(
     }
 
     const result = await createIssue(env, repo, issue);
+    if (result === "created") ctx.waitUntil(triggerCentralRemediation(env));
     if (shouldSendSecretEmail) await sendSecretScanningEmail(env, repo, alert, action, delivery);
     console.log("skvallerbyttan webhook issue result", { delivery, event, action, repo, alertNumber: alert.number ?? null, result });
     return new Response(`${result}\n`, { status: result === "created" ? 201 : 200 });
