@@ -3,6 +3,7 @@ export const COPILOT_SECURITY_AGENT = "copilot-swe-agent[bot]";
 const ASSIGNMENT_API_VERSION = "2026-03-10";
 
 type GithubRequest = (path: string, init?: RequestInit) => Promise<Response>;
+type SecurityAlertInput = Record<string, unknown> & { number?: unknown };
 
 type NativeRemediationResult = {
   handled: boolean;
@@ -92,7 +93,7 @@ async function assignCopilot(
 export async function tryNativeCodeScanningRemediation(
   request: GithubRequest,
   repo: string,
-  alert: { number?: unknown },
+  alert: SecurityAlertInput,
 ): Promise<NativeRemediationResult> {
   const number = Number(alert?.number);
   if (!Number.isSafeInteger(number) || number <= 0) return { handled: false, reason: "fallback" };
@@ -102,7 +103,7 @@ export async function tryNativeCodeScanningRemediation(
 export async function tryNativeDependabotRemediation(
   request: GithubRequest,
   repo: string,
-  alert: { number?: unknown },
+  alert: SecurityAlertInput,
   malware: boolean,
 ): Promise<NativeRemediationResult> {
   const number = Number(alert?.number);
