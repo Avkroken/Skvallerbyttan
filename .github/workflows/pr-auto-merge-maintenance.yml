@@ -26,113 +26,21 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
+      - name: Checkout maintainer-logik
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
       - name: Håll armerade PR:er aktuella
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const owner = context.repo.owner;
-            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-            const repositories = await github.paginate(
-              github.rest.repos.listForOrg,
-              { org: owner, type: 'all', per_page: 100 },
-            );
-
-            for (const repository of repositories) {
-              if (repository.archived || repository.disabled) continue;
-
-              const repo = repository.name;
-              const base = repository.default_branch;
-
-              let pulls;
-              try {
-                pulls = await github.paginate(
-                  github.rest.pulls.list,
-                  { owner, repo, state: 'open', base, per_page: 100 },
-                );
-              } catch (error) {
-                core.warning(`${owner}/${repo}: kunde inte lista PR:er: ${error.message}`);
-                continue;
-              }
-
-              for (const pull of pulls) {
-                if (pull.draft) continue;
-                if (pull.auto_merge == null) continue;
-                if (pull.head?.repo?.full_name !== `${owner}/${repo}`) continue;
-
-                const number = pull.number;
-
-                try {
-                  let comparison = await github.rest.repos.compareCommitsWithBasehead({
-                    owner,
-                    repo,
-                    basehead: `${pull.base.sha}...${pull.head.sha}`,
-                  });
-
-                  if (comparison.data.behind_by === 0) {
-                    core.info(`${owner}/${repo}#${number}: redan aktuell och armerad.`);
-                    continue;
-                  }
-
-                  core.info(
-                    `${owner}/${repo}#${number}: uppdaterar mot ${base} (behind_by=${comparison.data.behind_by}).`,
-                  );
-
-                  await github.rest.pulls.updateBranch({
-                    owner,
-                    repo,
-                    pull_number: number,
-                    expected_head_sha: pull.head.sha,
-                  });
-
-                  let currentWithBase = false;
-                  for (let attempt = 1; attempt <= 20; attempt += 1) {
-                    await sleep(3000);
-                    const [baseRef, headRef] = await Promise.all([
-                      github.rest.git.getRef({ owner, repo, ref: `heads/${base}` }),
-                      github.rest.git.getRef({ owner, repo, ref: `heads/${pull.head.ref}` }),
-                    ]);
-
-                    comparison = await github.rest.repos.compareCommitsWithBasehead({
-                      owner,
-                      repo,
-                      basehead: `${baseRef.data.object.sha}...${headRef.data.object.sha}`,
-                    });
-
-                    if (comparison.data.behind_by === 0) {
-                      currentWithBase = true;
-                      break;
-                    }
-                  }
-
-                  if (!currentWithBase) {
-                    core.warning(`${owner}/${repo}#${number}: blev inte aktuell inom 60 sekunder.`);
-                    continue;
-                  }
-
-                  core.info(`${owner}/${repo}#${number}: säkerställer native squash auto-merge efter branch-update.`);
-                  try {
-                    await github.graphql(
-                      `mutation($pullRequestId: ID!) {
-                        enablePullRequestAutoMerge(input: {
-                          pullRequestId: $pullRequestId,
-                          mergeMethod: SQUASH
-                        }) {
-                          pullRequest { number }
-                        }
-                      }`,
-                      { pullRequestId: pull.node_id },
-                    );
-                  } catch (error) {
-                    if (/already.*enabled|auto.?merge.*already/i.test(error.message)) {
-                      core.info(`${owner}/${repo}#${number}: auto-merge var redan fortsatt armerad.`);
-                    } else {
-                      core.warning(`${owner}/${repo}#${number}: kunde inte säkerställa auto-merge: ${error.message}`);
-                    }
-                  }
-                } catch (error) {
-                  core.warning(`${owner}/${repo}#${number}: underhåll misslyckades: ${error.message}`);
-                }
-              }
-            }
+            const { join } = require('node:path');
+            const { pathToFileURL } = require('node:url');
+            const moduleUrl = pathToFileURL(
+              join(process.env.GITHUB_WORKSPACE, 'scripts/pr-auto-merge-maintenance.mjs'),
+            ).href;
+            const { runMaintenance } = await import(moduleUrl);
+            await runMaintenance({ github, core, owner: context.repo.owner });
