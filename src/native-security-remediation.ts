@@ -1,5 +1,6 @@
 export const COPILOT_SECURITY_AGENT = "copilot-swe-agent[bot]";
 
+// GitHub's alert agent-assignment fields are exposed by the newer REST API version.
 const ASSIGNMENT_API_VERSION = "2026-03-10";
 
 type GithubRequest = (path: string, init?: RequestInit) => Promise<Response>;
