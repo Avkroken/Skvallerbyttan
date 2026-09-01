@@ -113,7 +113,7 @@ export async function tryNativeDependabotRemediation(
     try {
       const response = await request(`/repos/${repo}/automated-security-fixes`, { headers: versionedHeaders() });
       const status = await response.json<DependabotSecurityUpdates>();
-      if (status.enabled !== false && status.paused !== true) {
+      if (status.enabled === true && status.paused === false) {
         return { handled: true, reason: "dependabot-security-updates" };
       }
     } catch {
