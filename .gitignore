@@ -1,0 +1,8 @@
+node_modules/
+
+# Local Cloudflare development state and secrets
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+.wrangler/

@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "skvallerbyttan",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "secrets": {
+    "required": [
+      "SKVALLERBYTTAN_APP_PRIVATE_KEY",
+      "SKVALLERBYTTAN_DASHBOARD_PASSWORD"
+    ]
+  },
+  "vars": {
+    "SKVALLERBYTTAN_CLIENT_ID": "Iv23liOiYdlTjaGldNVP",
+    "SKVALLERBYTTAN_DASHBOARD_USERNAME": "avkroken",
+    "SKVALLERBYTTAN_ORG": "Avkroken"
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [
+    {
+      "pattern": "skvallerbyttan.denied.se",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "persist": true,
+      "head_sampling_rate": 0.1
+    }
+  }
+}
