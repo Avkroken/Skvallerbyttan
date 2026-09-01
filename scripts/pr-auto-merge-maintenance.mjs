@@ -15,6 +15,27 @@ function isQualifiedPull(pull, { owner, repo, base, requireArmed }) {
   );
 }
 
+async function collectPagesUntilDeadline({
+  iterator,
+  method,
+  parameters,
+  now,
+  deadline,
+  onDeadline,
+}) {
+  const items = [];
+  const pages = iterator(method, parameters)[Symbol.asyncIterator]();
+
+  while (now() < deadline) {
+    const page = await pages.next();
+    if (page.done) return items;
+    items.push(...page.value.data);
+  }
+
+  onDeadline();
+  return items;
+}
+
 export async function runMaintenance({
   github,
   core,
@@ -29,16 +50,18 @@ export async function runMaintenance({
   const deadline = now() + runBudgetMs;
   const tasks = [];
 
-  const repositories = await github.paginate(
-    github.rest.repos.listForOrg,
-    { org: owner, type: 'all', per_page: 100 },
-  );
+  const repositories = await collectPagesUntilDeadline({
+    iterator: github.paginate.iterator,
+    method: github.rest.repos.listForOrg,
+    parameters: { org: owner, type: 'all', per_page: 100 },
+    now,
+    deadline,
+    onDeadline: () =>
+      core.warning('PR-maintainerns tidsbudget tog slut under repository-listningen.'),
+  });
 
   for (const repository of repositories) {
-    if (now() >= deadline) {
-      core.warning('PR-maintainerns tidsbudget tog slut under repository-listningen.');
-      break;
-    }
+    if (now() >= deadline) break;
     if (repository.archived || repository.disabled) continue;
 
     const repo = repository.name;
@@ -46,10 +69,15 @@ export async function runMaintenance({
 
     let pulls;
     try {
-      pulls = await github.paginate(
-        github.rest.pulls.list,
-        { owner, repo, state: 'open', base, per_page: 100 },
-      );
+      pulls = await collectPagesUntilDeadline({
+        iterator: github.paginate.iterator,
+        method: github.rest.pulls.list,
+        parameters: { owner, repo, state: 'open', base, per_page: 100 },
+        now,
+        deadline,
+        onDeadline: () =>
+          core.warning(`${owner}/${repo}: tidsbudgeten tog slut under PR-listningen.`),
+      });
     } catch (error) {
       core.warning(`${owner}/${repo}: kunde inte lista PR:er: ${error.message}`);
       continue;
@@ -70,8 +98,6 @@ export async function runMaintenance({
   let completed = 0;
 
   const maintainOne = async ({ repo, base, number }) => {
-    let updatedByThisRun = false;
-
     try {
       if (now() >= deadline) return;
 
@@ -110,7 +136,6 @@ export async function runMaintenance({
         pull_number: number,
         expected_head_sha: pull.head.sha,
       });
-      updatedByThisRun = true;
 
       const pollDeadline = Math.min(deadline, now() + pollBudgetMs);
       let currentWithBase = false;
@@ -138,7 +163,11 @@ export async function runMaintenance({
       }
 
       if (!currentWithBase) {
-        const reason = now() >= deadline ? 'run-tidsbudgeten tog slut' : '60 sekunders polling tog slut';
+        const pollSeconds = Math.ceil(pollBudgetMs / 1000);
+        const reason =
+          now() >= deadline
+            ? 'run-tidsbudgeten tog slut'
+            : `${pollSeconds} sekunders polling tog slut`;
         core.warning(`${owner}/${repo}#${number}: blev inte aktuell; ${reason}.`);
         return;
       }
@@ -154,11 +183,6 @@ export async function runMaintenance({
 
       if (pull.auto_merge != null) {
         core.info(`${owner}/${repo}#${number}: aktuell och fortsatt armerad.`);
-        return;
-      }
-
-      if (!updatedByThisRun) {
-        core.warning(`${owner}/${repo}#${number}: återarmeras inte utan verifierad branch-update i denna körning.`);
         return;
       }
 
