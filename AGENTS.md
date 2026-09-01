@@ -26,9 +26,8 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 Organisationens aktiva rulesets är verkställande sanning. Vid den senaste verifieringen gäller bland annat:
 
 - PR krävs till default branch.
-- 1 approval krävs.
-- stale approvals avfärdas efter push.
-- last-push approval krävs av någon annan än den som gjorde senaste pushen.
+- required approvals är 0.
+- last-push approval krävs inte.
 - review-trådar måste vara resolved.
 - deletion och non-fast-forward/force push blockeras.
 - endast squash merge är tillåten.
@@ -73,4 +72,4 @@ Före PR: läs relevant kod, tester och konfiguration, granska hela diffen mot `
 
 ## Definition of done
 
-En PR-baserad uppgift är klar först när implementationen är färdig, diffen självgranskad, all relevant review-feedback är hanterad, required checks och Code Scanning är godkända på exakt final HEAD, nödvändig approval finns, relevanta review-trådar är resolved och PR:n har mergats genom normal ruleset-enforcement eller väntar på en verifierad legitim extern gate.
+En PR-baserad uppgift är klar först när implementationen är färdig, diffen självgranskad, all relevant review-feedback är hanterad, required checks och Code Scanning är godkända på exakt final HEAD, relevanta review-trådar är resolved och PR:n har mergats genom normal ruleset-enforcement eller väntar på en verifierad legitim extern gate.
