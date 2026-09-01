@@ -17,9 +17,11 @@ Cloudflare Workern ligger tillfälligt kvar som en tombstone medan externa resur
 - Cloudflare-cron är borttagen.
 - Durable Object-klassen finns endast kvar som kompatibilitetsstub och rensar eventuellt gammalt alarm-state utan externa writes.
 
-## GitHub Actions
+## GitHub-native säkerhet
 
-Endast repositoryts verifiering återstår:
+Code Scanning och Dependabot är organisationens säkerhetskontrollplan. Dependabot security updates styrs av Avkrokens org-level GitHub security configuration som gäller repositories i organisationen; Skvallerbyttan ska inte duplicera eller ersätta den funktionen.
+
+Repositoryts egna Actions-lager är begränsat till verifiering:
 
 - `.github/workflows/ci.yml` producerar `CI / required`.
 - `.github/workflows/osv-scanner.yml` producerar `scan-pr / osv-scan`.
