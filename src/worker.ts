@@ -37,7 +37,9 @@ function authorized(request: Request, env: Env): boolean {
   if (!auth?.startsWith("Basic ")) return false;
 
   try {
-    const decoded = atob(auth.slice(6));
+    const raw = atob(auth.slice(6));
+    const bytes = Uint8Array.from(raw, (character) => character.charCodeAt(0));
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const separator = decoded.indexOf(":");
     if (separator < 0) return false;
     const username = decoded.slice(0, separator);
@@ -106,8 +108,15 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
 
   const match = url.pathname.match(/^\/api\/repos\/([^/]+)$/);
   if (match) {
-    const repo = decodeURIComponent(match[1]);
-    if (!REPO_NAME.test(repo)) return json({ error: "invalid repository name" }, 400);
+    let repo: string;
+    try {
+      repo = decodeURIComponent(match[1]);
+    } catch {
+      return json({ error: "invalid repository name" }, 400);
+    }
+    if (!REPO_NAME.test(repo) || repo === "." || repo === "..") {
+      return json({ error: "invalid repository name" }, 400);
+    }
     return cachedJson(request, context, () => getRepositoryDetail(env, repo));
   }
 
