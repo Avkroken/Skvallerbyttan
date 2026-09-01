@@ -6,6 +6,7 @@ const USER_AGENT = "Avkroken-Skvallerbyttan-dashboard";
 
 type InstallationToken = { value: string; expiresAt: number };
 let installationTokenCache: InstallationToken | null = null;
+let installationTokenInFlight: Promise<InstallationToken> | null = null;
 
 export type OptionalResult<T> =
   | { available: true; value: T; status: number }
@@ -132,7 +133,11 @@ async function installationToken(env: Env): Promise<string> {
   if (installationTokenCache && installationTokenCache.expiresAt - Date.now() > 120_000) {
     return installationTokenCache.value;
   }
-  installationTokenCache = await mintInstallationToken(env);
+
+  installationTokenInFlight ??= mintInstallationToken(env).finally(() => {
+    installationTokenInFlight = null;
+  });
+  installationTokenCache = await installationTokenInFlight;
   return installationTokenCache.value;
 }
 
