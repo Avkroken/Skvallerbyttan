@@ -19,7 +19,7 @@ export async function validateProductionResponse(response) {
   if (
     body?.ok !== true ||
     body?.service !== "skvallerbyttan" ||
-    body?.check !== "configuration"
+    body?.check !== "decommissioned"
   ) {
     throw new Error(`${READY_URL} returned an unexpected readiness payload`);
   }
@@ -37,7 +37,7 @@ export async function checkProduction({
         headers: { "user-agent": "skvallerbyttan-workers-build-readiness-check" },
       });
       await validateProductionResponse(response);
-      console.log(`skvallerbyttan: readiness check passed on attempt ${attempt}`);
+      console.log(`skvallerbyttan: decommission check passed on attempt ${attempt}`);
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -46,7 +46,7 @@ export async function checkProduction({
     }
   }
 
-  throw new Error(`skvallerbyttan: readiness check failed after ${ATTEMPTS} attempts`);
+  throw new Error(`skvallerbyttan: decommission check failed after ${ATTEMPTS} attempts`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
