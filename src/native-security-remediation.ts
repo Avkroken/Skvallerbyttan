@@ -1,5 +1,7 @@
 export const COPILOT_SECURITY_AGENT = "copilot-swe-agent[bot]";
 
+const ASSIGNMENT_API_VERSION = "2026-03-10";
+
 type GithubRequest = (path: string, init?: RequestInit) => Promise<Response>;
 
 type NativeRemediationResult = {
@@ -43,9 +45,13 @@ export function dependabotHasPatch(alert: unknown): boolean {
   return typeof identifier === "string" && identifier.trim().length > 0;
 }
 
+function versionedHeaders(extra: HeadersInit = {}): HeadersInit {
+  return { "X-GitHub-Api-Version": ASSIGNMENT_API_VERSION, ...extra };
+}
+
 async function currentAlert(request: GithubRequest, path: string): Promise<unknown | null> {
   try {
-    const response = await request(path);
+    const response = await request(path, { headers: versionedHeaders() });
     return await response.json<unknown>();
   } catch {
     return null;
@@ -74,7 +80,7 @@ async function assignCopilot(
   try {
     await request(path, {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: versionedHeaders({ "content-type": "application/json" }),
       body: JSON.stringify(body),
     });
     return { handled: true, reason: "copilot-agent" };
@@ -104,7 +110,7 @@ export async function tryNativeDependabotRemediation(
 
   if (!malware && dependabotHasPatch(alert)) {
     try {
-      const response = await request(`/repos/${repo}/automated-security-fixes`);
+      const response = await request(`/repos/${repo}/automated-security-fixes`, { headers: versionedHeaders() });
       const status = await response.json<DependabotSecurityUpdates>();
       if (status.enabled !== false && status.paused !== true) {
         return { handled: true, reason: "dependabot-security-updates" };
