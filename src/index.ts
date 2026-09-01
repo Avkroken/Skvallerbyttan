@@ -552,6 +552,9 @@ async function runBackfill(env: Env): Promise<void> {
   );
   console.log("skvallerbyttan backfill complete", { code, dependabot, secret });
   await runIssueReconciliation(env);
+  if (code.created + dependabot.created + secret.created > 0) {
+    await triggerCentralRemediation(env);
+  }
 }
 
 export async function handleVerifiedWebhook(
