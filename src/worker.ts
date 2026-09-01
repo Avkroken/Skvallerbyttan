@@ -74,12 +74,22 @@ async function cachedJson(
   const key = cacheKey(request);
   if (!bypass) {
     const cached = await caches.default.match(key);
-    if (cached) return cached;
+    if (cached) {
+      const headers = new Headers(cached.headers);
+      headers.set("Cache-Control", "private, max-age=0");
+      headers.set("X-Skvallerbyttan-Cache", "hit");
+      return new Response(cached.body, {
+        status: cached.status,
+        statusText: cached.statusText,
+        headers,
+      });
+    }
   }
 
   const value = await loader();
   const response = json(value, 200, {
     "Cache-Control": `private, max-age=0`,
+    "X-Skvallerbyttan-Cache": "miss",
     "X-Skvallerbyttan-Cache-Ttl": String(CACHE_SECONDS),
   });
   const cacheable = response.clone();

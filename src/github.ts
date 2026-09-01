@@ -211,21 +211,31 @@ export async function githubListAll<T>(
   let path: string | null = initialPath;
   let pages = 0;
 
-  while (path && pages < maxPages) {
-    const response = await githubResponse(env, path);
-    if (!response.ok) {
-      return {
-        available: false,
-        value: null,
-        status: response.status,
-        reason: (await response.text()).slice(0, 220) || `GitHub API ${response.status}`,
-        truncated: false,
-      };
+  try {
+    while (path && pages < maxPages) {
+      const response = await githubResponse(env, path);
+      if (!response.ok) {
+        return {
+          available: false,
+          value: null,
+          status: response.status,
+          reason: (await response.text()).slice(0, 220) || `GitHub API ${response.status}`,
+          truncated: false,
+        };
+      }
+      const page = await response.json<T[]>();
+      items.push(...page);
+      path = nextPath(response.headers.get("link"));
+      pages += 1;
     }
-    const page = await response.json<T[]>();
-    items.push(...page);
-    path = nextPath(response.headers.get("link"));
-    pages += 1;
+  } catch (error) {
+    return {
+      available: false,
+      value: null,
+      status: 0,
+      reason: error instanceof Error ? error.message : String(error),
+      truncated: false,
+    };
   }
 
   return {
