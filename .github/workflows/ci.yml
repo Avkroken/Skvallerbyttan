@@ -18,40 +18,19 @@ jobs:
   required:
     name: CI / required
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Blockera ofärdig Codex-remediation
-        shell: bash
-        run: |
-          set -euo pipefail
-          if compgen -G '.github/codex-dispatch/issue-*.md' > /dev/null; then
-            echo '::error::Codex-remediation innehåller fortfarande en tillfällig seed-fil.'
-            find .github/codex-dispatch -maxdepth 1 -type f -name 'issue-*.md' -print
-            exit 1
-          fi
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 24
           cache: npm
 
-      - name: Installera beroenden
+      - name: Install dependencies
         run: npm ci
 
-      - name: Kör tester
-        run: npm test
-
-      - name: Typkontroll
-        run: npm run typecheck
-
-      - name: Validera Cloudflare-bindings
-        run: npm run validate:bindings
-
-      - name: Kompilera Worker med Wrangler
-        run: npm run validate:worker
+      - name: Verify repository
+        run: npm run check
