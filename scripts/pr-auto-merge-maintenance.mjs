@@ -70,6 +70,8 @@ export async function runMaintenance({
   let completed = 0;
 
   const maintainOne = async ({ repo, base, number }) => {
+    let updatedByThisRun = false;
+
     try {
       if (now() >= deadline) return;
 
@@ -108,7 +110,7 @@ export async function runMaintenance({
         pull_number: number,
         expected_head_sha: pull.head.sha,
       });
-      const updatedByThisRun = true;
+      updatedByThisRun = true;
 
       const pollDeadline = Math.min(deadline, now() + pollBudgetMs);
       let currentWithBase = false;
