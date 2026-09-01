@@ -39,7 +39,7 @@ function authorized(request: Request, env: Env): boolean {
   try {
     const raw = atob(auth.slice(6));
     const bytes = Uint8Array.from(raw, (character) => character.charCodeAt(0));
-    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
     const separator = decoded.indexOf(":");
     if (separator < 0) return false;
     const username = decoded.slice(0, separator);
