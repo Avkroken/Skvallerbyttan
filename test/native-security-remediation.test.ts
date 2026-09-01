@@ -37,6 +37,27 @@ test("prefers enabled Dependabot security updates for patchable non-malware aler
   assert.deepEqual(calls, [{ path: "/repos/Avkroken/example/automated-security-fixes", method: "GET" }]);
 });
 
+test("requires Dependabot security updates to be explicitly active", async () => {
+  const calls: Array<{ path: string; method: string }> = [];
+  const request = async (path: string, init?: RequestInit) => {
+    calls.push({ path, method: init?.method ?? "GET" });
+    if (path.endsWith("/automated-security-fixes")) return response({ enabled: true });
+    if (!init?.method) return response({ assignees: [] });
+    return response({});
+  };
+
+  const result = await tryNativeDependabotRemediation(
+    request,
+    "Avkroken/example",
+    { number: 8, security_vulnerability: { first_patched_version: { identifier: "2.0.1" } } },
+    false,
+  );
+
+  assert.deepEqual(result, { handled: true, reason: "copilot-agent" });
+  assert.equal(calls[0]?.path, "/repos/Avkroken/example/automated-security-fixes");
+  assert.equal(calls.at(-1)?.method, "PATCH");
+});
+
 test("assigns Copilot for code scanning while preserving existing assignees", async () => {
   const writes: unknown[] = [];
   const request = async (_path: string, init?: RequestInit) => {
