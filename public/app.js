@@ -112,7 +112,10 @@ function renderCapabilities(data, target = "#capabilities") {
 
 function spark(values = []) {
   const max = Math.max(1, ...values);
-  return `<div class="spark" aria-label="52 veckors aktivitet">${values.map((value) => `<span style="height:${Math.max(2, Math.round((value / max) * 100))}%" title="${esc(value)} commits"></span>`).join("")}</div>`;
+  return `<div class="spark" aria-label="52 veckors aktivitet">${values.map((value) => {
+    const level = Math.max(1, Math.min(10, Math.ceil((value / max) * 10)));
+    return `<span class="spark-${level}" title="${esc(value)} commits"></span>`;
+  }).join("")}</div>`;
 }
 
 function kv(rows) {

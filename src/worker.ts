@@ -62,7 +62,7 @@ function authRequired(): Response {
 
 function cacheKey(request: Request): Request {
   const url = new URL(request.url);
-  return new Request(`https://skvallerbyttan-cache.internal${url.pathname}`, { method: "GET" });
+  return new Request(`${url.origin}${url.pathname}`, { method: "GET" });
 }
 
 async function cachedJson(
