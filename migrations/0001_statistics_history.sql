@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS org_snapshots (
   open_pull_requests INTEGER NOT NULL,
   stale_pull_requests INTEGER NOT NULL,
   action_sample_pass_rate REAL,
-  failed_runs_last_7d_sample INTEGER NOT NULL,
+  failed_runs_last_7d_sample INTEGER,
   code_scanning_alerts INTEGER NOT NULL,
   dependabot_alerts INTEGER NOT NULL,
   secret_scanning_alerts INTEGER NOT NULL
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS repo_snapshots (
   open_pull_requests INTEGER,
   stale_pull_requests INTEGER,
   action_sample_pass_rate REAL,
-  failed_runs_last_7d_sample INTEGER NOT NULL,
+  failed_runs_last_7d_sample INTEGER,
   code_scanning_alerts INTEGER NOT NULL,
   dependabot_alerts INTEGER NOT NULL,
   secret_scanning_alerts INTEGER NOT NULL,
