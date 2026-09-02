@@ -22,11 +22,12 @@ test("snapshotFromOverview reduces dashboard data to non-secret hourly history",
 
   assert.equal(snapshot.bucket, "2026-09-02T07:00:00.000Z");
   assert.equal(snapshot.repositoryCount, 4);
-  assert.equal(snapshot.actionPassRate, 0.9);
+  assert.equal(snapshot.actionSamplePassRate, 0.9);
+  assert.equal(snapshot.failedRunsLast7dSample, 2);
   assert.equal(snapshot.secretScanningAlerts, 1);
 });
 
-test("sinceLast returns explicit deltas from the previous snapshot", () => {
+test("sinceLast returns explicit sample-labelled deltas from the previous snapshot", () => {
   const current = snapshotFromOverview({
     generatedAt: "2026-09-02T08:05:00.000Z",
     repositoryCount: 4,
@@ -45,8 +46,8 @@ test("sinceLast returns explicit deltas from the previous snapshot", () => {
   assert.equal(delta.openIssues, -1);
   assert.equal(delta.openPullRequests, 1);
   assert.equal(delta.stalePullRequests, -1);
-  assert.ok(Math.abs(Number(delta.actionPassRate) - 0.05) < 1e-12);
-  assert.equal(delta.failedRuns7d, -1);
+  assert.ok(Math.abs(Number(delta.actionSamplePassRate) - 0.05) < 1e-12);
+  assert.equal(delta.failedRunsLast7dSample, -1);
   assert.equal(delta.codeScanningAlerts, -1);
   assert.equal(delta.secretScanningAlerts, -1);
 });
