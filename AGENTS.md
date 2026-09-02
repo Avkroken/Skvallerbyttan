@@ -6,8 +6,9 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 
 `Skvallerbyttan` är Avkrokens GitHub-statistikdashboard.
 
-- `src/worker.ts` äger HTTP-gräns, auth, caching och statiska assets.
-- `src/github.ts` äger GitHub App JWT, installation token och GitHub REST-anrop.
+- `src/worker.ts` äger HTTP-gräns, auth-gating, caching och statiska assets.
+- `src/auth.ts` äger Krösa-Maja OAuth, PKCE/state, allowlist och signerade sessionscookies.
+- `src/github.ts` äger Gamnacke GitHub App JWT, installation token och GitHub REST-anrop.
 - `src/data.ts` äger aggregering av organisations- och repo-statistik.
 - `src/metrics.ts` ska hållas ren och testbar utan nätverksanrop.
 - `public/` är dashboard-klienten.
@@ -25,9 +26,11 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 
 ## Dataskydd
 
-- GitHub App private key, installation tokens, dashboard-lösenord och andra credentials får aldrig committas, loggas eller skickas till klienten.
+- Gamnackes GitHub App private key, installation tokens, Krösa-Majas OAuth client secret, sessionshemlighet och andra credentials får aldrig committas, loggas eller skickas till klienten.
+- OAuth-user-tokenen får endast användas för identitetsuppslag under login och får inte lagras eller skickas till klienten.
 - Secret Scanning-secretvärden får aldrig returneras från API:t, renderas i UI:t eller loggas. Endast aggregerad statistik och icke-hemlig typmetadata får exponeras.
-- Dashboard-data ska vara autentiserad innan statiska assets eller `/api/*` serveras.
+- Dashboard-data, dashboard-assets och `/api/*` ska vara autentiserade. `/login`, OAuth-callback och logout är avsiktliga publika auth-ytor och får inte exponera dashboard-data.
+- Åtkomst ska bindas till numeriska GitHub user IDs i explicit allowlist; GitHub-login får inte användas som permanent identitetsnyckel.
 - Nya GitHub-endpoints ska använda minsta nödvändiga read-permission och degradera tydligt vid saknad permission.
 - Lägg inte till write-operationer mot andra repositories som en del av statistikinsamlingen.
 
