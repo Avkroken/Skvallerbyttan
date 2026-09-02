@@ -5,7 +5,7 @@ type OverviewTotals = {
   openPullRequests?: number;
   stalePullRequests?: number;
   actionSamplePassRate?: number | null;
-  failedRunsLast7dSample?: number;
+  failedRunsLast7dSample?: number | null;
 };
 
 type SecurityCount = { count?: number };
@@ -42,7 +42,7 @@ export type OrgSnapshot = {
   openPullRequests: number;
   stalePullRequests: number;
   actionSamplePassRate: number | null;
-  failedRunsLast7dSample: number;
+  failedRunsLast7dSample: number | null;
   codeScanningAlerts: number;
   dependabotAlerts: number;
   secretScanningAlerts: number;
@@ -56,7 +56,7 @@ type OrgSnapshotRow = {
   open_pull_requests: number;
   stale_pull_requests: number;
   action_sample_pass_rate: number | null;
-  failed_runs_last_7d_sample: number;
+  failed_runs_last_7d_sample: number | null;
   code_scanning_alerts: number;
   dependabot_alerts: number;
   secret_scanning_alerts: number;
@@ -84,6 +84,7 @@ export function snapshotFromOverview(value: Record<string, unknown>): OrgSnapsho
     : new Date().toISOString();
   const totals = overview.totals ?? {};
   const security = overview.security ?? {};
+  const hasActionSample = totals.actionSamplePassRate != null || (overview.repositories ?? []).some((repo) => repo.actions != null);
   return {
     bucket: hourlyBucket(capturedAt),
     capturedAt,
@@ -92,7 +93,9 @@ export function snapshotFromOverview(value: Record<string, unknown>): OrgSnapsho
     openPullRequests: finite(totals.openPullRequests),
     stalePullRequests: finite(totals.stalePullRequests),
     actionSamplePassRate: totals.actionSamplePassRate == null ? null : finite(totals.actionSamplePassRate),
-    failedRunsLast7dSample: finite(totals.failedRunsLast7dSample),
+    failedRunsLast7dSample: hasActionSample && totals.failedRunsLast7dSample != null
+      ? finite(totals.failedRunsLast7dSample)
+      : null,
     codeScanningAlerts: finite(security.codeScanning?.count),
     dependabotAlerts: finite(security.dependabot?.count),
     secretScanningAlerts: finite(security.secretScanning?.count),
@@ -217,7 +220,7 @@ export async function captureOverviewSnapshot(env: Env, value: Record<string, un
       repo.openPullRequests == null ? null : finite(repo.openPullRequests),
       repo.stalePullRequests == null ? null : finite(repo.stalePullRequests),
       repo.actions?.passRate == null ? null : finite(repo.actions.passRate),
-      finite(repo.actions?.failedLast7d),
+      repo.actions == null ? null : finite(repo.actions.failedLast7d),
       finite(repo.security?.codeScanning),
       finite(repo.security?.dependabot),
       finite(repo.security?.secretScanning),
