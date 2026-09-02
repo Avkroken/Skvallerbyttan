@@ -102,8 +102,8 @@ function renderSinceLast(data) {
     card("Öppna issues", fmtSignedInt(change.openIssues), "förändring"),
     card("Öppna PR", fmtSignedInt(change.openPullRequests), "förändring"),
     card("Stale PR", fmtSignedInt(change.stalePullRequests), "förändring"),
-    card("CI pass rate", fmtSignedPctPoints(change.actionPassRate), "procentenheter"),
-    card("Misslyckade runs", fmtSignedInt(change.failedRuns7d), "7-dagars sample"),
+    card("CI pass rate", fmtSignedPctPoints(change.actionSamplePassRate), "sample · procentenheter"),
+    card("Misslyckade runs", fmtSignedInt(change.failedRunsLast7dSample), "7-dagars sample"),
     card("Security alerts", fmtSignedInt(securityDelta), "CodeQL + Dependabot + secrets"),
   ].join("");
   section.classList.remove("hidden");
