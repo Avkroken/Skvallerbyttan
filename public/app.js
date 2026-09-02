@@ -1,4 +1,4 @@
-const state = { overview: null };
+const state = { overview: null, repoRequestId: null };
 const $ = (selector) => document.querySelector(selector);
 
 function esc(value) {
@@ -318,24 +318,29 @@ async function loadRepo(name) {
   if (!name) return;
   const detail = $("#repo-detail");
   const content = $("#repo-detail-content");
+  const encoded = encodeURIComponent(name);
+  const requestId = Symbol("repo-request");
+  state.repoRequestId = requestId;
   detail.classList.remove("hidden");
   content.innerHTML = '<p class="loading">Laddar repo-data…</p>';
   detail.scrollIntoView({ behavior: "smooth", block: "start" });
   try {
-    const encoded = encodeURIComponent(name);
     const data = await api(`/api/repos/${encoded}`);
+    if (state.repoRequestId !== requestId) return;
     data.insights = null;
     renderRepoDetail(data);
     history.replaceState(null, "", `#repo=${encoded}`);
 
     api(`/api/insights/${encoded}`)
       .then((insights) => {
+        if (state.repoRequestId !== requestId) return;
         if (location.hash !== `#repo=${encoded}`) return;
         data.insights = insights;
         renderRepoDetail(data);
       })
       .catch(() => {});
   } catch (error) {
+    if (state.repoRequestId !== requestId) return;
     content.innerHTML = `<p class="error-text">Kunde inte läsa repo-data: ${esc(error.message)}</p>`;
   }
 }
@@ -363,6 +368,7 @@ async function loadOverview(refresh = false) {
 
 $("#refresh").addEventListener("click", () => loadOverview(true));
 $("#close-detail").addEventListener("click", () => {
+  state.repoRequestId = null;
   $("#repo-detail").classList.add("hidden");
   history.replaceState(null, "", location.pathname);
 });
