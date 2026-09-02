@@ -54,12 +54,13 @@ function renderCards(data) {
   const critical = (data.security?.codeScanning?.severities?.critical ?? 0) + (data.security?.dependabot?.severities?.critical ?? 0);
   const high = (data.security?.codeScanning?.severities?.high ?? 0) + (data.security?.dependabot?.severities?.high ?? 0);
   const secret = data.security?.secretScanning?.count ?? 0;
+  const staleHint = data.totals.stalePullRequestsSampled ? "Stale = 14 dagar · sample" : "Stale = 14 dagar";
   $("#cards").innerHTML = [
     card("Öppna secrets", fmtInt(secret), "Secret scanning"),
     card("Critical / high", `${fmtInt(critical)} / ${fmtInt(high)}`, "CodeQL + Dependabot"),
     card("CI pass rate", fmtPct(data.totals.actionSamplePassRate), "Senaste 100 runs per repo"),
     card("Misslyckade runs", fmtInt(data.totals.failedRunsLast7dSample), "7 dagar, inom samples"),
-    card("Öppna / stale PR", `${fmtInt(data.totals.openPullRequests)} / ${fmtInt(data.totals.stalePullRequests)}`, "Stale = 14 dagar"),
+    card("Öppna / stale PR", `${fmtInt(data.totals.openPullRequests)} / ${fmtInt(data.totals.stalePullRequests)}`, staleHint),
     card("Repos / Actions", `${fmtInt(data.repositoryCount)} / ${fmtInt(data.totals.actionRuns)}`, "Installerad GitHub App"),
   ].join("");
 }
@@ -88,7 +89,7 @@ function renderRepoRows(data) {
       <td>${fmtInt(repo.attentionScore)}</td>
       <td>${securityText(repo)}</td>
       <td>${actionText(repo.actions)}</td>
-      <td>${repo.openPullRequests == null ? "—" : `${fmtInt(repo.openPullRequests)} / ${fmtInt(repo.stalePullRequests)} stale`}</td>
+      <td>${repo.openPullRequests == null ? "—" : `${fmtInt(repo.openPullRequests)} / ${fmtInt(repo.stalePullRequests)} stale${repo.stalePullRequestsSampled ? " (sample)" : ""}`}</td>
       <td>${fmtInt(repo.openIssues)}</td>
       <td title="${esc(fmtDate(repo.pushedAt))}">${esc(age(repo.pushedAt))}</td>
     </tr>`).join("");
@@ -151,6 +152,7 @@ function renderRepoDetail(data) {
           ["Stars / forks", `${fmtInt(repo.stars)} / ${fmtInt(repo.forks)}`],
           ["Open issues", fmtInt(repo.openIssues)],
           ["Open PR", repo.openPullRequests == null ? "—" : fmtInt(repo.openPullRequests)],
+          ["Stale PR", data.pullRequests.stale == null ? "—" : `${fmtInt(data.pullRequests.stale)}${data.pullRequests.staleSampled ? " (sample)" : ""}`],
           ["Senast push", esc(fmtDate(repo.pushedAt))],
         ])}
       </article>
