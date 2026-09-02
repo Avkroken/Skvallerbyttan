@@ -197,10 +197,19 @@ async function getPulls(env: Env, fullName: string): Promise<{
   const staleSampled = Boolean(page && page > 1);
   if (page && page > 1) {
     const tail = await githubOptionalJson<Pull[]>(env, `${path}&page=${page}`);
-    if (tail.available) {
-      count = (page - 1) * 100 + tail.value.length;
-      pulls = newestPulls(tail.value);
+    if (!tail.available) {
+      return {
+        available: false,
+        count: 0,
+        pulls: [],
+        stale: 0,
+        staleSampled: false,
+        status: tail.status,
+        reason: tail.reason,
+      };
     }
+    count = (page - 1) * 100 + tail.value.length;
+    pulls = newestPulls(tail.value);
   }
   return {
     available: true,
