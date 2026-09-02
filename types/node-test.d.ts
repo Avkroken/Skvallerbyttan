@@ -10,12 +10,28 @@ declare module "node:assert/strict" {
 }
 
 declare module "node:test" {
-  interface TestContext {
-    test(name: string, callback: TestCallback): Promise<void>;
+  interface TestOptions {
+    concurrency?: boolean | number;
+    only?: boolean;
+    signal?: AbortSignal;
+    skip?: boolean | string;
+    timeout?: number;
+    todo?: boolean | string;
   }
 
-  type TestCallback = (context: TestContext) => unknown | Promise<unknown>;
-  type TestFunction = (name: string, callback: TestCallback) => Promise<void>;
+  type TestCallback =
+    | ((context: TestContext) => unknown | Promise<unknown>)
+    | ((context: TestContext, done: (result?: unknown) => void) => unknown);
+
+  interface TestContext {
+    test(name: string, callback: TestCallback): Promise<void>;
+    test(name: string, options: TestOptions, callback?: TestCallback): Promise<void>;
+  }
+
+  interface TestFunction {
+    (name: string, callback: TestCallback): Promise<void>;
+    (name: string, options: TestOptions, callback?: TestCallback): Promise<void>;
+  }
 
   const test: TestFunction;
   export default test;
