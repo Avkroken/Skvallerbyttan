@@ -48,6 +48,19 @@ Prioritera i denna ordning:
 
 Mått ska märkas som sample/truncated när API:t inte ger full historik. Härledda mått som attention-score får inte presenteras som GitHub-native statistik.
 
+## Metadata-only AI triage exception
+
+Repositoryägaren har uttryckligen godkänt metadata-only issue triage via GitHub Agentic Workflows. Detta är klassificering, inte coding-agent delegation eller remediation.
+
+- `.github/workflows/metadata-routing.yml` får endast anropa Avkrokens centrala deterministiska metadata-routing för assignee och labels.
+- `.github/workflows/issue-classification.yml` får endast trigga på öppnade/återöppnade issues och anropa den SHA-pinnade centrala `issue-classification.lock.yml`.
+- AI-delen får läsa det triggande issuet och read-only repositorykontext som behövs för klassificering.
+- `gh-aw` safe outputs får endast lägga till exakt en `difficulty:*` och en `security:*` label från den centrala allowlisten.
+- Workflowen får inte kommentera, assigna coding agents, skapa/ändra branches eller PR:er, reviewa, mergea, deploya, mutera statistikdata eller utföra/föreslå remediation.
+- Copilot-auth får komma från organization billing eller GitHub Actions-secreten `COPILOT_GITHUB_TOKEN`. Credentialvärden får aldrig committas, loggas eller kopieras till dokumentation.
+
+Detta undantag tillåter inte write-operationer mot andra repositories och ändrar inte dataskydds-, auth-, Cloudflare-, review- eller mergepolicyn.
+
 ## Cloudflare
 
 - `wrangler.jsonc` behåller Worker-namnet `skvallerbyttan` och custom domain `skvallerbyttan.denied.se`.
