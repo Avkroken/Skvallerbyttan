@@ -27,6 +27,21 @@ test("snapshotFromOverview reduces dashboard data to non-secret hourly history",
   assert.equal(snapshot.secretScanningAlerts, 1);
 });
 
+test("snapshotFromOverview keeps missing Actions data as null", () => {
+  const snapshot = snapshotFromOverview({
+    generatedAt: "2026-09-02T08:00:00.000Z",
+    repositoryCount: 1,
+    totals: {
+      actionSamplePassRate: null,
+      failedRunsLast7dSample: 0,
+    },
+    repositories: [{ name: "private-repo", actions: null }],
+  });
+
+  assert.equal(snapshot.actionSamplePassRate, null);
+  assert.equal(snapshot.failedRunsLast7dSample, null);
+});
+
 test("sinceLast returns explicit sample-labelled deltas from the previous snapshot", () => {
   const current = snapshotFromOverview({
     generatedAt: "2026-09-02T08:05:00.000Z",
