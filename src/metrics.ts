@@ -4,6 +4,7 @@ export type WorkflowRun = {
   event?: string;
   html_url?: string;
   name?: string;
+  workflow_id?: number;
   run_started_at?: string | null;
   status?: string;
   updated_at?: string;
@@ -73,6 +74,11 @@ function timestamp(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function workflowIdentity(run: WorkflowRun): string {
+  if (Number.isSafeInteger(run.workflow_id) && Number(run.workflow_id) > 0) return `id:${run.workflow_id}`;
+  return `name:${run.name || "unknown"}`;
+}
+
 export function summarizeWorkflowRuns(
   totalCount: number,
   runs: WorkflowRun[],
@@ -88,7 +94,7 @@ export function summarizeWorkflowRuns(
   let latestFailureAt: string | null = null;
   const eventCounts: Record<string, number> = {};
   const durations: number[] = [];
-  const completed: Array<{ conclusion: string; endedAt: number }> = [];
+  const completed: Array<{ conclusion: string; endedAt: number; workflow: string }> = [];
 
   for (const run of runs) {
     const event = run.event || "unknown";
@@ -107,7 +113,7 @@ export function summarizeWorkflowRuns(
       durations.push(endedAt - startedAt);
     }
     if (run.conclusion && endedAt !== null) {
-      completed.push({ conclusion: run.conclusion, endedAt });
+      completed.push({ conclusion: run.conclusion, endedAt, workflow: workflowIdentity(run) });
     }
 
     if (run.conclusion === "success") {
@@ -133,15 +139,16 @@ export function summarizeWorkflowRuns(
   }
 
   const recoveryDurations: number[] = [];
-  let incidentStartedAt: number | null = null;
+  const incidentStartedAt = new Map<string, number>();
   for (const run of completed.sort((left, right) => left.endedAt - right.endedAt)) {
     if (FAILURE_CONCLUSIONS.has(run.conclusion)) {
-      incidentStartedAt ??= run.endedAt;
+      if (!incidentStartedAt.has(run.workflow)) incidentStartedAt.set(run.workflow, run.endedAt);
       continue;
     }
-    if (run.conclusion === "success" && incidentStartedAt !== null) {
-      recoveryDurations.push(Math.max(0, run.endedAt - incidentStartedAt));
-      incidentStartedAt = null;
+    const startedAt = incidentStartedAt.get(run.workflow);
+    if (run.conclusion === "success" && startedAt !== undefined) {
+      recoveryDurations.push(Math.max(0, run.endedAt - startedAt));
+      incidentStartedAt.delete(run.workflow);
     }
   }
 
