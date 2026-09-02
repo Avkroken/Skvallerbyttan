@@ -1,14 +1,8 @@
-interface ImportMeta {
-  readonly url: string;
-}
-
 declare module "node:assert/strict" {
-  type RejectsBlock = () => unknown | Promise<unknown>;
-
   interface StrictAssert {
     equal(actual: unknown, expected: unknown, message?: string | Error): void;
     deepEqual(actual: unknown, expected: unknown, message?: string | Error): void;
-    rejects(block: RejectsBlock | Promise<unknown>, error?: RegExp | object, message?: string | Error): Promise<void>;
+    ok(value: unknown, message?: string | Error): void;
   }
 
   const assert: StrictAssert;
@@ -16,13 +10,35 @@ declare module "node:assert/strict" {
 }
 
 declare module "node:test" {
-  type TestCallback = () => unknown | Promise<unknown>;
-  type TestFunction = (name: string, callback: TestCallback) => void;
+  interface TestOptions {
+    concurrency?: boolean | number;
+    only?: boolean;
+    signal?: AbortSignal;
+    skip?: boolean | string;
+    timeout?: number;
+    todo?: boolean | string;
+  }
+
+  type TestCallback =
+    | ((context: TestContext) => unknown | Promise<unknown>)
+    | ((context: TestContext, done: (result?: unknown) => void) => unknown);
+
+  interface TestContext {
+    test(): Promise<void>;
+    test(callback: TestCallback): Promise<void>;
+    test(options: TestOptions, callback?: TestCallback): Promise<void>;
+    test(name: string, callback?: TestCallback): Promise<void>;
+    test(name: string, options: TestOptions, callback?: TestCallback): Promise<void>;
+  }
+
+  interface TestFunction {
+    (): Promise<void>;
+    (callback: TestCallback): Promise<void>;
+    (options: TestOptions, callback?: TestCallback): Promise<void>;
+    (name: string, callback?: TestCallback): Promise<void>;
+    (name: string, options: TestOptions, callback?: TestCallback): Promise<void>;
+  }
 
   const test: TestFunction;
   export default test;
-}
-
-declare module "node:module" {
-  export function createRequire(filename: string | URL): (specifier: string) => unknown;
 }

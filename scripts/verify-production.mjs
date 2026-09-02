@@ -19,6 +19,7 @@ export async function validateProductionResponse(response) {
   if (
     body?.ok !== true ||
     body?.service !== "skvallerbyttan" ||
+    body?.purpose !== "github-dashboard" ||
     body?.check !== "configuration"
   ) {
     throw new Error(`${READY_URL} returned an unexpected readiness payload`);

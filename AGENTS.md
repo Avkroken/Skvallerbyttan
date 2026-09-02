@@ -1,75 +1,56 @@
 # AGENTS.md
 
-Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-konfiguration är verkställande sanning när dokumentation och faktisk enforcement skiljer sig.
+Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-konfiguration och aktiva rulesets är verkställande sanning om dokumentation och faktisk enforcement skiljer sig.
 
 ## Repository
 
-`Skvallerbyttan` är Avkrokens centrala mottagare och reconcilerare för GitHub-säkerhetsalerts.
+`Skvallerbyttan` är Avkrokens GitHub-statistikdashboard.
 
-- `src/worker.ts` äger webhook-gräns, persistent idempotens och readiness.
-- `src/index.ts` hanterar organization-webhooks, alert-backfill och security Issues.
-- `wrangler.jsonc` äger Worker-bindings, route, cron, Durable Object-migrationer och observability.
+- `src/worker.ts` äger HTTP-gräns, auth, caching och statiska assets.
+- `src/github.ts` äger GitHub App JWT, installation token och GitHub REST-anrop.
+- `src/data.ts` äger aggregering av organisations- och repo-statistik.
+- `src/metrics.ts` ska hållas ren och testbar utan nätverksanrop.
+- `public/` är dashboard-klienten.
+- `wrangler.jsonc` är source of truth för versionerad Worker-konfiguration och custom domain.
 - Cloudflare Workers Builds äger normal produktionsdeploy från `main`.
-- Repositoryt får inte skapa eller uppdatera branches/PR:er i andra repositories, arma auto-merge eller delegera remediation via GitHub Actions.
-- Credentials, privata nycklar och secret-värden får aldrig committas eller loggas.
 
 ## Brancher och pull requests
 
-- Pusha aldrig direkt till `main`.
-- Arbeta på en kortlivad branch och öppna en ready PR till `main`.
-- Squash är enda tillåtna merge-metod.
+- Arbeta på `dev`.
+- Produktionsändringar går via PR `dev` -> `main`.
+- Skapa inte fler arbetsbrancher utan uttryckligt beslut om att ändra branchmodellen.
 - Kringgå aldrig rulesets, required checks, reviews eller thread resolution.
-- Efter varje ny commit ska exakt aktuell HEAD och samtliga gates verifieras igen.
+- Squash är målmetoden när live-policy tillåter/kräver det.
 
-## Live merge-policy
+## Dataskydd
 
-Organisationens aktiva rulesets är verkställande sanning. Vid den senaste verifieringen gäller bland annat:
+- GitHub App private key, installation tokens, dashboard-lösenord och andra credentials får aldrig committas, loggas eller skickas till klienten.
+- Secret Scanning-secretvärden får aldrig returneras från API:t, renderas i UI:t eller loggas. Endast aggregerad statistik och icke-hemlig typmetadata får exponeras.
+- Dashboard-data ska vara autentiserad innan statiska assets eller `/api/*` serveras.
+- Nya GitHub-endpoints ska använda minsta nödvändiga read-permission och degradera tydligt vid saknad permission.
+- Lägg inte till write-operationer mot andra repositories som en del av statistikinsamlingen.
 
-- PR krävs till default branch.
-- required approvals är 0.
-- last-push approval krävs inte.
-- review-trådar måste vara resolved.
-- deletion och non-fast-forward/force push blockeras.
-- endast squash merge är tillåten.
-- `CI / required` är required genom org-rulesetet `ci`.
-- `scan-pr / osv-scan` är required genom org-rulesetet `main`.
-- CodeQL merge protection använder `medium_or_higher` för security alerts och `errors_and_warnings` för alerts.
-- Copilot Code Review körs på pushes/drafts men är inte en required status check.
-- inga bypass actors är konfigurerade.
+## GitHub-statistik
 
-Org-rulesetet `main` refererar för närvarande även till Regelverkets `.github/workflows/osv-scanner.yml` som central required workflow. Det är org-level live-state och kan inte neutraliseras i detta repository. Repositoryts egen OSV-workflow ska ändå vara självständig; den centrala required-workflow-referensen måste tas bort separat på organisationsnivå för att målarkitekturen ska bli helt repo-specifik.
+Prioritera i denna ordning:
 
-## GitHub Actions
+1. säkerhetsrisk och leveranshälsa,
+2. repo-hälsa och trafik,
+3. historiska trender och härledda mått.
 
-Repositoryt äger endast sina egna verifieringsbehov:
-
-- `.github/workflows/ci.yml` producerar `CI / required` och kör projektets etablerade `npm run check` efter ren installation.
-- `.github/workflows/osv-scanner.yml` kör repo-lokal OSV-skanning. PR-jobbet producerar `scan-pr / osv-scan`; `main`/schedule/manual används för kompletterande rapportering.
-- GitHub Actions ska inte deploya produktion; Cloudflare Workers Builds gör det.
-- GitHub Actions ska inte skapa/uppdatera branches eller PR:er, arma auto-merge, köra PR-maintenance eller agera central security-remediation-dispatcher.
-- Använd minsta nödvändiga `permissions` och pinna Actions/reusable workflows till full commit-SHA när praktiskt möjligt.
-
-## Security alert-ingestion
-
-- `X-Hub-Signature-256` verifieras före payloadbehandling.
-- webhook-body begränsas och signerade `X-GitHub-Delivery` dedupliceras persistent.
-- alert→Issue och backfill/reconciliation ska vara idempotenta över Worker-restarts.
-- dismissed alerts behandlas inte som verifierade fixes.
-- Secret Scanning-innehåll får aldrig kopieras till Issue- eller e-posttext.
-- per-repository Code Scanning-snapshotfiler ska inte användas som separat datakälla.
+Mått ska märkas som sample/truncated när API:t inte ger full historik. Härledda mått som attention-score får inte presenteras som GitHub-native statistik.
 
 ## Cloudflare
 
-- Workers Builds är enda normala produktionsdeploykedjan från `main`.
-- `deploy` ska vara direkt `wrangler deploy --strict`.
-- `scripts/verify-production.mjs` verifierar endast `/ready` efter deploy.
-- `wrangler.jsonc` är source of truth för versionerad Worker-konfiguration.
-- Ändra inte runtime-secrets via Git eller GitHub Actions.
+- `wrangler.jsonc` behåller Worker-namnet `skvallerbyttan` och custom domain `skvallerbyttan.denied.se`.
+- GitHub Actions ska inte deploya produktion; Cloudflare Workers Builds gör det.
+- Runtime-secrets ska hanteras i Cloudflare, inte i Git/GitHub Actions.
+- `assets.run_worker_first` ska förbli aktivt så att auth inte kan kringgås via statiska assets.
 
 ## Verifiering
 
-Före PR: läs relevant kod, tester och konfiguration, granska hela diffen mot `main` och kör relevanta lokala kontroller när det är möjligt. Efter push: verifiera exakt HEAD, required checks, Code Scanning, reviews och review-trådar. Faktiska Copilot/CodeRabbit-findings ska utvärderas även när tjänsten inte är en hard gate.
+Före PR: kör `npm run check`, granska hela diffen mot `main` och kontrollera att inga credentials eller secret payloads har introducerats. Efter push/PR: verifiera exakt final HEAD, required checks, Code Scanning och review-trådar enligt live rulesets.
 
 ## Definition of done
 
-En PR-baserad uppgift är klar först när implementationen är färdig, diffen självgranskad, all relevant review-feedback är hanterad, required checks och Code Scanning är godkända på exakt final HEAD, relevanta review-trådar är resolved och PR:n har mergats genom normal ruleset-enforcement eller väntar på en verifierad legitim extern gate.
+En ändring är klar först när implementationen är verifierad, CI/security-gates är gröna på exakt final HEAD och den har mergats via normal enforcement, eller tydligt väntar på en legitim extern gate som Cloudflare-secret eller deploy.

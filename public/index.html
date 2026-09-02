@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Skvallerbyttan · GitHub Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Avkroken</p>
+          <h1>Skvallerbyttan</h1>
+          <p class="subtitle">GitHub-hälsa, säkerhet, leverans och repo-statistik.</p>
+        </div>
+        <div class="topbar-actions">
+          <span id="freshness" class="muted">Laddar…</span>
+          <button id="refresh" type="button">Uppdatera</button>
+        </div>
+      </header>
+
+      <section id="alert" class="alert hidden" aria-live="polite"></section>
+
+      <section aria-labelledby="overview-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Prioritet 0</p>
+            <h2 id="overview-title">Det viktigaste först</h2>
+          </div>
+          <p class="muted">Risk, CI, öppna PR:er och aktivt underhåll.</p>
+        </div>
+        <div id="cards" class="cards"></div>
+      </section>
+
+      <section aria-labelledby="attention-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Åtgärdsordning</p>
+            <h2 id="attention-title">Repos som behöver uppmärksamhet</h2>
+          </div>
+          <p class="muted">Sorteras efter ett transparent internt attention-score.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Repo</th>
+                <th>Score</th>
+                <th>Säkerhet</th>
+                <th>CI</th>
+                <th>PR</th>
+                <th>Issues</th>
+                <th>Senast push</th>
+              </tr>
+            </thead>
+            <tbody id="repo-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="repo-detail" class="detail hidden" aria-labelledby="repo-title">
+        <div class="section-heading detail-heading">
+          <div>
+            <p class="eyebrow">Repo-specifik data</p>
+            <h2 id="repo-title">Repository</h2>
+          </div>
+          <button id="close-detail" class="secondary" type="button">Stäng</button>
+        </div>
+        <div id="repo-detail-content"></div>
+      </section>
+
+      <section aria-labelledby="capabilities-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Datatäckning</p>
+            <h2 id="capabilities-title">GitHub API-kapabiliteter</h2>
+          </div>
+          <p class="muted">En nekad permission visas som otillgänglig utan att resten av dashboarden bryts.</p>
+        </div>
+        <div id="capabilities" class="capabilities"></div>
+      </section>
+
+      <section class="roadmap" aria-labelledby="roadmap-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Implementationsordning</p>
+            <h2 id="roadmap-title">Från signal till historik</h2>
+          </div>
+        </div>
+        <ol>
+          <li><strong>P0 · nu:</strong> säkerhetsalerts, Actions-hälsa, öppna/stale PR:er, issues och repo-prioritering.</li>
+          <li><strong>P1 · nu:</strong> repo-detaljer för trafik, språk, contributors, releases, workflows, deployments, branches och rulesets när GitHub Appen har read-access.</li>
+          <li><strong>P2 · nästa:</strong> full historik och tidsserier för Actions, PR lead time, MTTR och trendanalys. Det kräver beständig snapshot-lagring i Cloudflare, inte bara live-API.</li>
+        </ol>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

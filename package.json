@@ -3,12 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm test && npm run typecheck && npm run validate:bindings && npm run validate:worker",
+    "check": "npm test && npm run typecheck && npm run validate:worker",
     "deploy": "wrangler deploy --strict",
     "verify:production": "node scripts/verify-production.mjs",
-    "test": "tsx --test test/*.test.ts && node --test test/*.test.mjs",
+    "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "validate:bindings": "node scripts/validate-bindings.mjs",
     "validate:worker": "wrangler deploy --dry-run"
   },
   "devDependencies": {

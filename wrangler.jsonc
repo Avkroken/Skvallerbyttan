@@ -2,34 +2,19 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "skvallerbyttan",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-08-26",
+  "compatibility_date": "2026-09-01",
   "workers_dev": false,
   "preview_urls": false,
   "secrets": {
     "required": [
-      "SKVALLERBYTTAN_WEBHOOK_SECRET",
-      "SKVALLERBYTTAN_APP_PRIVATE_KEY"
+      "SKVALLERBYTTAN_APP_PRIVATE_KEY",
+      "SKVALLERBYTTAN_DASHBOARD_PASSWORD"
     ]
   },
   "vars": {
     "SKVALLERBYTTAN_CLIENT_ID": "Iv23liOiYdlTjaGldNVP",
-    "SKVALLERBYTTAN_EMAIL_TO": "anders.eriksson@denied.se",
-    "SKVALLERBYTTAN_EMAIL_FROM": "noreply@denied.se"
-  },
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "allowed_destination_addresses": ["anders.eriksson@denied.se"],
-      "allowed_sender_addresses": ["noreply@denied.se"]
-    }
-  ],
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "SKVALLERBYTTAN_ISSUE_LOCK",
-        "class_name": "SkvallerbyttanIssueLock"
-      }
-    ]
+    "SKVALLERBYTTAN_DASHBOARD_USERNAME": "avkroken",
+    "SKVALLERBYTTAN_ORG": "Avkroken"
   },
   "migrations": [
     {
@@ -44,17 +29,24 @@
           "to": "SkvallerbyttanIssueLock"
         }
       ]
+    },
+    {
+      "tag": "v3-dashboard",
+      "deleted_classes": ["SkvallerbyttanIssueLock"]
     }
   ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
   "routes": [
     {
       "pattern": "skvallerbyttan.denied.se",
       "custom_domain": true
     }
   ],
-  "triggers": {
-    "crons": ["17 * * * *"]
-  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
