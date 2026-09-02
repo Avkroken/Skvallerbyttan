@@ -1,4 +1,4 @@
-const state = { overview: null };
+const state = { overview: null, repoRequestId: null };
 const $ = (selector) => document.querySelector(selector);
 
 function esc(value) {
@@ -24,6 +24,30 @@ function fmtDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function fmtDuration(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  const ms = Math.max(0, Number(value));
+  const minutes = ms / 60_000;
+  if (minutes < 1) return "<1 min";
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  const hours = minutes / 60;
+  if (hours < 24) return `${new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 }).format(hours)} h`;
+  return `${new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 }).format(hours / 24)} d`;
+}
+
+function fmtSignedInt(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  const numeric = Number(value);
+  return `${numeric > 0 ? "+" : ""}${fmtInt(numeric)}`;
+}
+
+function fmtSignedPctPoints(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  const points = Number(value) * 100;
+  const formatted = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 }).format(points);
+  return `${points > 0 ? "+" : ""}${formatted} pp`;
 }
 
 function age(value) {
@@ -63,6 +87,26 @@ function renderCards(data) {
     card("Öppna / stale PR", `${fmtInt(data.totals.openPullRequests)} / ${fmtInt(data.totals.stalePullRequests)}`, staleHint),
     card("Repos / Actions", `${fmtInt(data.repositoryCount)} / ${fmtInt(data.totals.actionRuns)}`, "Installerad GitHub App"),
   ].join("");
+}
+
+function renderSinceLast(data) {
+  const section = $("#since-last");
+  const change = data.sinceLast;
+  if (!change?.available) {
+    section.classList.add("hidden");
+    return;
+  }
+  const securityDelta = Number(change.codeScanningAlerts ?? 0) + Number(change.dependabotAlerts ?? 0) + Number(change.secretScanningAlerts ?? 0);
+  $("#since-last-caption").textContent = `Jämfört med ${fmtDate(change.previousCapturedAt)}.`;
+  $("#since-last-cards").innerHTML = [
+    card("Öppna issues", fmtSignedInt(change.openIssues), "förändring"),
+    card("Öppna PR", fmtSignedInt(change.openPullRequests), "förändring"),
+    card("Stale PR", fmtSignedInt(change.stalePullRequests), "förändring"),
+    card("CI pass rate", fmtSignedPctPoints(change.actionSamplePassRate), "sample · procentenheter"),
+    card("Misslyckade runs", fmtSignedInt(change.failedRunsLast7dSample), "7-dagars sample"),
+    card("Security alerts", fmtSignedInt(securityDelta), "CodeQL + Dependabot + secrets"),
+  ].join("");
+  section.classList.remove("hidden");
 }
 
 function securityText(repo) {
@@ -127,6 +171,11 @@ function kv(rows) {
 
 function renderRepoDetail(data) {
   const repo = data.repository;
+  const insights = data.insights || {};
+  const actionSummary = insights.actions?.summary || data.actions.summary;
+  const pullCycle = insights.pullRequests?.cycle || null;
+  const delivery = insights.deployments || null;
+  const activityTrend = insights.activity || null;
   $("#repo-title").textContent = repo.fullName;
   const code = data.security.codeScanning;
   const dep = data.security.dependabot;
@@ -179,20 +228,52 @@ function renderRepoDetail(data) {
       </article>
 
       <article class="panel wide">
-        <h3>Actions</h3>
-        ${data.actions.summary ? kv([
-          ["Totalt antal runs", fmtInt(data.actions.summary.totalRuns)],
-          ["Sample", fmtInt(data.actions.summary.sampledRuns)],
-          ["Pass rate", fmtPct(data.actions.summary.passRate)],
-          ["Fel senaste 7 dagar", fmtInt(data.actions.summary.failedLast7d)],
+        <h3>Actions · sample</h3>
+        ${actionSummary ? kv([
+          ["Totalt antal runs", fmtInt(actionSummary.totalRuns)],
+          ["Sample", fmtInt(actionSummary.sampledRuns)],
+          ["Pass rate", fmtPct(actionSummary.passRate)],
+          ["Median duration", fmtDuration(actionSummary.medianDurationMs)],
+          ["P95 duration", fmtDuration(actionSummary.p95DurationMs)],
+          ["MTTR median", actionSummary.mttrSampleCount ? `${fmtDuration(actionSummary.mttrMedianMs)} (${fmtInt(actionSummary.mttrSampleCount)} recovery)` : "—"],
+          ["Fel senaste 7 dagar", fmtInt(actionSummary.failedLast7d)],
           ["Workflows", data.actions.workflowCount == null ? "—" : fmtInt(data.actions.workflowCount)],
         ]) : '<p class="error-text">Actions-data är inte tillgänglig för GitHub Appen.</p>'}
         <ul class="list">${runs.slice(0, 10).map((run) => `<li><a href="${esc(run.url || "#")}" target="_blank" rel="noreferrer"><strong>${esc(run.name || "Workflow")}</strong> · ${esc(run.event || "—")} · ${badge(run.conclusion || run.status || "—", run.conclusion === "success" ? "good" : run.conclusion === "failure" ? "bad" : "neutral")}<br><span class="small">${esc(run.actor || "—")} · ${esc(fmtDate(run.createdAt))}</span></a></li>`).join("") || '<li class="small">Inga runs i sample.</li>'}</ul>
       </article>
 
       <article class="panel">
+        <h3>PR-flöde · sample</h3>
+        ${pullCycle ? kv([
+          ["Mergade PR", fmtInt(pullCycle.sampledPullRequests)],
+          ["Lead time median", fmtDuration(pullCycle.leadTimeMedianMs)],
+          ["Lead time p90", fmtDuration(pullCycle.leadTimeP90Ms)],
+          ["Första review median", fmtDuration(pullCycle.firstReviewMedianMs)],
+          ["Första review p90", fmtDuration(pullCycle.firstReviewP90Ms)],
+          ["PR med human review", fmtInt(pullCycle.reviewedPullRequests)],
+        ]) : '<p class="small">PR-cycle-data är inte tillgänglig.</p>'}
+      </article>
+
+      <article class="panel">
+        <h3>Deployments · sample</h3>
+        ${delivery?.available ? kv([
+          ["Senaste 30 dagar", fmtInt(delivery.deploymentsLast30d)],
+          ["Frekvens / vecka", new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 }).format(delivery.frequencyPerWeek30d ?? 0)],
+          ["Success / fail", `${fmtInt(delivery.successfulSample)} / ${fmtInt(delivery.failedSample)}`],
+          ["Change failure rate", fmtPct(delivery.changeFailureRateSample)],
+          ["Senast lyckad", esc(fmtDate(delivery.latestSuccessfulAt))],
+          ["Status coverage", `${fmtInt(delivery.statusAvailable)} / ${fmtInt(delivery.statusSample)}`],
+        ]) : '<p class="small">Deployment-data är inte tillgänglig.</p>'}
+      </article>
+
+      <article class="panel">
         <h3>Commit-aktivitet · 52 veckor</h3>
         ${participation.length ? spark(participation) : '<p class="small">Ingen participation-data.</p>'}
+        ${activityTrend?.available ? kv([
+          ["Senaste 4 veckor", fmtInt(activityTrend.current4w)],
+          ["Föregående 4", fmtInt(activityTrend.previous4w)],
+          ["Trend", activityTrend.changeRatio == null ? "—" : fmtSignedPctPoints(activityTrend.changeRatio).replace(" pp", "%")],
+        ]) : ""}
       </article>
 
       <article class="panel full">
@@ -230,21 +311,36 @@ function renderRepoDetail(data) {
         <div id="repo-capabilities" class="capabilities"></div>
       </article>
     </div>`;
-  renderCapabilities(data, "#repo-capabilities");
+  renderCapabilities({ capabilities: [...(data.capabilities || []), ...(insights.capabilities || [])] }, "#repo-capabilities");
 }
 
 async function loadRepo(name) {
   if (!name) return;
   const detail = $("#repo-detail");
   const content = $("#repo-detail-content");
+  const encoded = encodeURIComponent(name);
+  const requestId = Symbol("repo-request");
+  state.repoRequestId = requestId;
   detail.classList.remove("hidden");
   content.innerHTML = '<p class="loading">Laddar repo-data…</p>';
   detail.scrollIntoView({ behavior: "smooth", block: "start" });
   try {
-    const data = await api(`/api/repos/${encodeURIComponent(name)}`);
+    const data = await api(`/api/repos/${encoded}`);
+    if (state.repoRequestId !== requestId) return;
+    data.insights = null;
     renderRepoDetail(data);
-    history.replaceState(null, "", `#repo=${encodeURIComponent(name)}`);
+    history.replaceState(null, "", `#repo=${encoded}`);
+
+    api(`/api/insights/${encoded}`)
+      .then((insights) => {
+        if (state.repoRequestId !== requestId) return;
+        if (location.hash !== `#repo=${encoded}`) return;
+        data.insights = insights;
+        renderRepoDetail(data);
+      })
+      .catch(() => {});
   } catch (error) {
+    if (state.repoRequestId !== requestId) return;
     content.innerHTML = `<p class="error-text">Kunde inte läsa repo-data: ${esc(error.message)}</p>`;
   }
 }
@@ -255,6 +351,7 @@ async function loadOverview(refresh = false) {
     const data = await api(`/api/overview${refresh ? "?refresh=1" : ""}`);
     state.overview = data;
     renderCards(data);
+    renderSinceLast(data);
     renderRepoRows(data);
     renderCapabilities(data);
     $("#freshness").textContent = `Genererad ${fmtDate(data.generatedAt)}`;
@@ -271,6 +368,7 @@ async function loadOverview(refresh = false) {
 
 $("#refresh").addEventListener("click", () => loadOverview(true));
 $("#close-detail").addEventListener("click", () => {
+  state.repoRequestId = null;
   $("#repo-detail").classList.add("hidden");
   history.replaceState(null, "", location.pathname);
 });

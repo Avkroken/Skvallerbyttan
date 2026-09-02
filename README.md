@@ -8,7 +8,7 @@ Dashboarden implementeras i fallande nytta:
 
 1. **P0 — risk och leverans:** öppna Code Scanning-, Dependabot- och Secret Scanning-alerts, Actions-hälsa, öppna/stale pull requests, issues och en repo-rankning för vad som behöver uppmärksamhet först.
 2. **P1 — repo-hälsa:** trafik, commit-aktivitet, språk, contributors, releases, workflows, deployments, branches och rulesets när GitHub Appens permissions tillåter det.
-3. **P2 — historik och trender:** full Actions-historik, PR lead time, MTTR och längre tidsserier. GitHubs live-endpoints räcker inte för all historik (exempelvis är repository traffic begränsad till de senaste 14 dagarna), så detta steg ska använda beständig snapshot-lagring i Cloudflare.
+3. **P2 — historik och trender:** PR lead time, tid till första human review, Actions-duration, MTTR, deployment-frekvens/change-failure-rate och 4-veckors aktivitetstrend finns som live/sample-mått. Längre tidsserier och ”Sedan sist” använder D1-snapshots när `STATS_DB` är bunden. GitHubs live-endpoints räcker inte för all historik, exempelvis är repository traffic begränsad till de senaste 14 dagarna.
 
 ## Säkerhetsmodell
 
@@ -26,6 +26,8 @@ Gamnackes privata nyckel ligger endast som Cloudflare-secret `SKVALLERBYTTAN_GAM
 
 Krösa-Majas OAuth Client Secret ligger endast som Cloudflare-secret `SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET`. Sessionsignering använder endast Cloudflare-secret `SKVALLERBYTTAN_SESSION_SECRET`.
 
+D1-historiken lagrar endast härledda/aggregerade repo- och organisationsmått. Den lagrar inga OAuth-token, installation tokens, secret-värden eller andra credentials.
+
 Om Gamnacke saknar read-permission för en endpoint returnerar dashboarden den kapabiliteten som otillgänglig utan att övrig statistik faller.
 
 ## Runtime
@@ -34,12 +36,15 @@ Om Gamnacke saknar read-permission för en endpoint returnerar dashboarden den k
 - OAuth och sessionsauth: `src/auth.ts`
 - GitHub App-auth och API-klient: `src/github.ts`
 - Aggregering och repo-detaljer: `src/data.ts`
+- Repo-insights för PR/Actions/deployments: `src/insights.ts`
+- D1-snapshots och historik: `src/history.ts`
 - Rena metrics-funktioner: `src/metrics.ts`
+- D1-migrationer: `migrations/`
 - Frontend: `public/`
 - Worker-konfiguration: `wrangler.jsonc`
 - Produktion: Cloudflare Workers Builds från `main`
 
-`/healthz` är en enkel process-health endpoint. `/ready` verifierar att obligatorisk Gamnacke-, Krösa-Maja- och sessionskonfiguration finns.
+`/healthz` är en enkel process-health endpoint. `/ready` verifierar att obligatorisk Gamnacke-, Krösa-Maja- och sessionskonfiguration finns och rapporterar separat om statistik-D1 är bunden.
 
 OAuth callback för Krösa-Maja ska vara exakt:
 
@@ -49,9 +54,40 @@ https://skvallerbyttan.denied.se/auth/github/callback
 
 ## GitHub App permissions
 
-Basdata kräver Metadata read. Fler sektioner blir tillgängliga när Gamnacke har motsvarande read-permissions, bland annat Actions, Administration (repository traffic), Code scanning alerts / Security events, Dependabot alerts och Secret scanning alerts.
+Basdata kräver Metadata read. Fler sektioner blir tillgängliga när Gamnacke har motsvarande read-permissions, bland annat Actions, Pull requests, Deployments, Administration (repository traffic), Code scanning alerts / Security events, Dependabot alerts och Secret scanning alerts.
 
-Dashboarden ska degradera läsbart vid 403/404 i stället för att anta att en permission finns.
+Dashboarden ska degradera läsbart vid 403/404 i stället för att anta att en permission finns. PR lead time och Actions-duration är uttryckligen sample-baserade när endast de senaste posterna läses.
+
+## D1-historik
+
+Live-insights fungerar utan D1. För längre historik skapas en separat D1-databas och binds som `STATS_DB`.
+
+Skapa databasen en gång:
+
+```sh
+npx wrangler d1 create skvallerbyttan-stats
+```
+
+Kommandot returnerar ett `database_id`. Lägg därefter in följande versionerade binding i `wrangler.jsonc`:
+
+```jsonc
+"d1_databases": [
+  {
+    "binding": "STATS_DB",
+    "database_name": "skvallerbyttan-stats",
+    "database_id": "<UUID>",
+    "migrations_dir": "migrations"
+  }
+]
+```
+
+Applicera sedan migrationerna före deploy:
+
+```sh
+npx wrangler d1 migrations apply skvallerbyttan-stats --remote
+```
+
+När bindingen finns tar `/api/overview` högst en snapshot per timbucket och `/api/history?days=90` respektive `/api/history?repo=<repo>&days=90` läser tidsserien. Om D1 inte är bunden fortsätter live-dashboarden fungera utan historik.
 
 ## Lokalt
 
