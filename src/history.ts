@@ -41,8 +41,8 @@ export type OrgSnapshot = {
   openIssues: number;
   openPullRequests: number;
   stalePullRequests: number;
-  actionPassRate: number | null;
-  failedRuns7d: number;
+  actionSamplePassRate: number | null;
+  failedRunsLast7dSample: number;
   codeScanningAlerts: number;
   dependabotAlerts: number;
   secretScanningAlerts: number;
@@ -55,8 +55,8 @@ type OrgSnapshotRow = {
   open_issues: number;
   open_pull_requests: number;
   stale_pull_requests: number;
-  action_pass_rate: number | null;
-  failed_runs_7d: number;
+  action_sample_pass_rate: number | null;
+  failed_runs_last_7d_sample: number;
   code_scanning_alerts: number;
   dependabot_alerts: number;
   secret_scanning_alerts: number;
@@ -91,8 +91,8 @@ export function snapshotFromOverview(value: Record<string, unknown>): OrgSnapsho
     openIssues: finite(totals.openIssues),
     openPullRequests: finite(totals.openPullRequests),
     stalePullRequests: finite(totals.stalePullRequests),
-    actionPassRate: totals.actionSamplePassRate == null ? null : finite(totals.actionSamplePassRate),
-    failedRuns7d: finite(totals.failedRunsLast7dSample),
+    actionSamplePassRate: totals.actionSamplePassRate == null ? null : finite(totals.actionSamplePassRate),
+    failedRunsLast7dSample: finite(totals.failedRunsLast7dSample),
     codeScanningAlerts: finite(security.codeScanning?.count),
     dependabotAlerts: finite(security.dependabot?.count),
     secretScanningAlerts: finite(security.secretScanning?.count),
@@ -107,8 +107,8 @@ function fromRow(row: OrgSnapshotRow): OrgSnapshot {
     openIssues: row.open_issues,
     openPullRequests: row.open_pull_requests,
     stalePullRequests: row.stale_pull_requests,
-    actionPassRate: row.action_pass_rate,
-    failedRuns7d: row.failed_runs_7d,
+    actionSamplePassRate: row.action_sample_pass_rate,
+    failedRunsLast7dSample: row.failed_runs_last_7d_sample,
     codeScanningAlerts: row.code_scanning_alerts,
     dependabotAlerts: row.dependabot_alerts,
     secretScanningAlerts: row.secret_scanning_alerts,
@@ -119,8 +119,8 @@ export async function previousOverviewSnapshot(env: Env, currentBucket: string):
   if (!env.STATS_DB) return null;
   const row = await env.STATS_DB.prepare(
     `SELECT bucket, captured_at, repository_count, open_issues, open_pull_requests,
-            stale_pull_requests, action_pass_rate, failed_runs_7d, code_scanning_alerts,
-            dependabot_alerts, secret_scanning_alerts
+            stale_pull_requests, action_sample_pass_rate, failed_runs_last_7d_sample,
+            code_scanning_alerts, dependabot_alerts, secret_scanning_alerts
        FROM org_snapshots
       WHERE bucket < ?
       ORDER BY bucket DESC
@@ -143,8 +143,8 @@ export function sinceLast(current: OrgSnapshot, previous: OrgSnapshot | null): R
     openIssues: delta(current.openIssues, previous.openIssues),
     openPullRequests: delta(current.openPullRequests, previous.openPullRequests),
     stalePullRequests: delta(current.stalePullRequests, previous.stalePullRequests),
-    actionPassRate: delta(current.actionPassRate, previous.actionPassRate),
-    failedRuns7d: delta(current.failedRuns7d, previous.failedRuns7d),
+    actionSamplePassRate: delta(current.actionSamplePassRate, previous.actionSamplePassRate),
+    failedRunsLast7dSample: delta(current.failedRunsLast7dSample, previous.failedRunsLast7dSample),
     codeScanningAlerts: delta(current.codeScanningAlerts, previous.codeScanningAlerts),
     dependabotAlerts: delta(current.dependabotAlerts, previous.dependabotAlerts),
     secretScanningAlerts: delta(current.secretScanningAlerts, previous.secretScanningAlerts),
@@ -159,8 +159,8 @@ export async function captureOverviewSnapshot(env: Env, value: Record<string, un
     env.STATS_DB.prepare(
       `INSERT INTO org_snapshots (
         bucket, captured_at, repository_count, open_issues, open_pull_requests,
-        stale_pull_requests, action_pass_rate, failed_runs_7d, code_scanning_alerts,
-        dependabot_alerts, secret_scanning_alerts
+        stale_pull_requests, action_sample_pass_rate, failed_runs_last_7d_sample,
+        code_scanning_alerts, dependabot_alerts, secret_scanning_alerts
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(bucket) DO UPDATE SET
         captured_at = excluded.captured_at,
@@ -168,8 +168,8 @@ export async function captureOverviewSnapshot(env: Env, value: Record<string, un
         open_issues = excluded.open_issues,
         open_pull_requests = excluded.open_pull_requests,
         stale_pull_requests = excluded.stale_pull_requests,
-        action_pass_rate = excluded.action_pass_rate,
-        failed_runs_7d = excluded.failed_runs_7d,
+        action_sample_pass_rate = excluded.action_sample_pass_rate,
+        failed_runs_last_7d_sample = excluded.failed_runs_last_7d_sample,
         code_scanning_alerts = excluded.code_scanning_alerts,
         dependabot_alerts = excluded.dependabot_alerts,
         secret_scanning_alerts = excluded.secret_scanning_alerts`,
@@ -180,8 +180,8 @@ export async function captureOverviewSnapshot(env: Env, value: Record<string, un
       org.openIssues,
       org.openPullRequests,
       org.stalePullRequests,
-      org.actionPassRate,
-      org.failedRuns7d,
+      org.actionSamplePassRate,
+      org.failedRunsLast7dSample,
       org.codeScanningAlerts,
       org.dependabotAlerts,
       org.secretScanningAlerts,
@@ -193,8 +193,8 @@ export async function captureOverviewSnapshot(env: Env, value: Record<string, un
     statements.push(env.STATS_DB.prepare(
       `INSERT INTO repo_snapshots (
         bucket, repo, captured_at, attention_score, open_issues, open_pull_requests,
-        stale_pull_requests, action_pass_rate, failed_runs_7d, code_scanning_alerts,
-        dependabot_alerts, secret_scanning_alerts, pushed_at
+        stale_pull_requests, action_sample_pass_rate, failed_runs_last_7d_sample,
+        code_scanning_alerts, dependabot_alerts, secret_scanning_alerts, pushed_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(bucket, repo) DO UPDATE SET
         captured_at = excluded.captured_at,
@@ -202,8 +202,8 @@ export async function captureOverviewSnapshot(env: Env, value: Record<string, un
         open_issues = excluded.open_issues,
         open_pull_requests = excluded.open_pull_requests,
         stale_pull_requests = excluded.stale_pull_requests,
-        action_pass_rate = excluded.action_pass_rate,
-        failed_runs_7d = excluded.failed_runs_7d,
+        action_sample_pass_rate = excluded.action_sample_pass_rate,
+        failed_runs_last_7d_sample = excluded.failed_runs_last_7d_sample,
         code_scanning_alerts = excluded.code_scanning_alerts,
         dependabot_alerts = excluded.dependabot_alerts,
         secret_scanning_alerts = excluded.secret_scanning_alerts,
@@ -235,8 +235,8 @@ export async function getHistory(env: Env, repo: string | null, days: number): P
   if (!repo) {
     const result = await env.STATS_DB.prepare(
       `SELECT bucket, captured_at, repository_count, open_issues, open_pull_requests,
-              stale_pull_requests, action_pass_rate, failed_runs_7d, code_scanning_alerts,
-              dependabot_alerts, secret_scanning_alerts
+              stale_pull_requests, action_sample_pass_rate, failed_runs_last_7d_sample,
+              code_scanning_alerts, dependabot_alerts, secret_scanning_alerts
          FROM org_snapshots
         WHERE captured_at >= ?
         ORDER BY captured_at ASC`,
@@ -246,8 +246,8 @@ export async function getHistory(env: Env, repo: string | null, days: number): P
 
   const result = await env.STATS_DB.prepare(
     `SELECT bucket, repo, captured_at, attention_score, open_issues, open_pull_requests,
-            stale_pull_requests, action_pass_rate, failed_runs_7d, code_scanning_alerts,
-            dependabot_alerts, secret_scanning_alerts, pushed_at
+            stale_pull_requests, action_sample_pass_rate, failed_runs_last_7d_sample,
+            code_scanning_alerts, dependabot_alerts, secret_scanning_alerts, pushed_at
        FROM repo_snapshots
       WHERE repo = ? AND captured_at >= ?
       ORDER BY captured_at ASC`,
