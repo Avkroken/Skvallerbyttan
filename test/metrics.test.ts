@@ -12,10 +12,10 @@ import {
 test("summarizeWorkflowRuns separates failures, cancellations and pass rate", () => {
   const now = Date.parse("2026-09-01T12:00:00Z");
   const summary = summarizeWorkflowRuns(50, [
-    { status: "completed", conclusion: "success", event: "push", run_started_at: "2026-09-01T10:55:00Z", updated_at: "2026-09-01T11:00:00Z" },
-    { status: "completed", conclusion: "failure", event: "pull_request", run_started_at: "2026-09-01T09:50:00Z", updated_at: "2026-09-01T10:00:00Z" },
-    { status: "completed", conclusion: "cancelled", event: "push", run_started_at: "2026-09-01T08:58:00Z", updated_at: "2026-09-01T09:00:00Z" },
-    { status: "in_progress", conclusion: null, event: "workflow_dispatch", updated_at: "2026-09-01T08:00:00Z" },
+    { workflow_id: 1, status: "completed", conclusion: "success", event: "push", run_started_at: "2026-09-01T10:55:00Z", updated_at: "2026-09-01T11:00:00Z" },
+    { workflow_id: 1, status: "completed", conclusion: "failure", event: "pull_request", run_started_at: "2026-09-01T09:50:00Z", updated_at: "2026-09-01T10:00:00Z" },
+    { workflow_id: 2, status: "completed", conclusion: "cancelled", event: "push", run_started_at: "2026-09-01T08:58:00Z", updated_at: "2026-09-01T09:00:00Z" },
+    { workflow_id: 3, status: "in_progress", conclusion: null, event: "workflow_dispatch", updated_at: "2026-09-01T08:00:00Z" },
   ], now);
 
   assert.equal(summary.totalRuns, 50);
@@ -30,6 +30,16 @@ test("summarizeWorkflowRuns separates failures, cancellations and pass rate", ()
   assert.equal(summary.p95DurationMs, 10 * 60 * 1000);
   assert.equal(summary.mttrMedianMs, 60 * 60 * 1000);
   assert.equal(summary.mttrSampleCount, 1);
+});
+
+test("summarizeWorkflowRuns never closes an incident with another workflow", () => {
+  const summary = summarizeWorkflowRuns(3, [
+    { workflow_id: 10, status: "completed", conclusion: "failure", updated_at: "2026-09-01T10:00:00Z" },
+    { workflow_id: 20, status: "completed", conclusion: "success", updated_at: "2026-09-01T10:30:00Z" },
+    { workflow_id: 10, status: "completed", conclusion: "success", updated_at: "2026-09-01T12:00:00Z" },
+  ]);
+  assert.equal(summary.mttrSampleCount, 1);
+  assert.equal(summary.mttrMedianMs, 2 * 60 * 60 * 1000);
 });
 
 test("summarizePullRequestCycles calculates lead time and first human review", () => {
