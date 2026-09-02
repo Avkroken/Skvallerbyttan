@@ -18,6 +18,13 @@
     "SKVALLERBYTTAN_ALLOWED_GITHUB_IDS": "36226327",
     "SKVALLERBYTTAN_ORG": "Avkroken"
   },
+  "d1_databases": [
+    {
+      "binding": "STATS_DB",
+      "database_name": "skvallerbyttan-stats",
+      "database_id": "12b0199f-efa2-4f96-b5c5-e3a7f2144125"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
