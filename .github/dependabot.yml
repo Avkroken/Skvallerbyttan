@@ -4,8 +4,7 @@ updates:
     assignees: ["blixten85"]
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "wednesday"
+      interval: "daily"
       time: "05:00"
       timezone: "Europe/Stockholm"
     groups:
@@ -16,8 +15,7 @@ updates:
     assignees: ["blixten85"]
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "wednesday"
+      interval: "daily"
       time: "05:10"
       timezone: "Europe/Stockholm"
     groups:
