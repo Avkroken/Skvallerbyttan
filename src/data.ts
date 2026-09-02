@@ -163,11 +163,18 @@ function lastPage(link: string | null): number | null {
   return match ? Number(match[1]) : null;
 }
 
+function newestPulls(pulls: Pull[]): Pull[] {
+  return [...pulls].sort(
+    (left, right) => Date.parse(right.updated_at ?? "") - Date.parse(left.updated_at ?? ""),
+  );
+}
+
 async function getPulls(env: Env, fullName: string): Promise<{
   available: boolean;
   count: number;
   pulls: Pull[];
   stale: number;
+  staleSampled: boolean;
   status: number;
   reason?: string;
 }> {
@@ -178,18 +185,31 @@ async function getPulls(env: Env, fullName: string): Promise<{
     count: 0,
     pulls: [],
     stale: 0,
+    staleSampled: false,
     status: response.status,
     reason: (await response.text()).slice(0, 220),
   };
 
-  const pulls = await response.json<Pull[]>();
+  const oldestPulls = await response.json<Pull[]>();
   const page = lastPage(response.headers.get("link"));
-  let count = pulls.length;
+  let count = oldestPulls.length;
+  let pulls = newestPulls(oldestPulls);
+  const staleSampled = Boolean(page && page > 1);
   if (page && page > 1) {
     const tail = await githubOptionalJson<Pull[]>(env, `${path}&page=${page}`);
-    if (tail.available) count = (page - 1) * 100 + tail.value.length;
+    if (tail.available) {
+      count = (page - 1) * 100 + tail.value.length;
+      pulls = newestPulls(tail.value);
+    }
   }
-  return { available: true, count, pulls, stale: countStalePullRequests(pulls), status: response.status };
+  return {
+    available: true,
+    count,
+    pulls,
+    stale: countStalePullRequests(oldestPulls),
+    staleSampled,
+    status: response.status,
+  };
 }
 
 async function getActions(env: Env, fullName: string): Promise<{
@@ -241,6 +261,7 @@ export async function getOverview(env: Env): Promise<Record<string, unknown>> {
       openIssues,
       openPullRequests: pulls.available ? pulls.count : null,
       stalePullRequests: pulls.available ? pulls.stale : null,
+      stalePullRequestsSampled: pulls.available ? pulls.staleSampled : false,
       actions: actions.summary,
       security: repoSecurity,
       attentionScore: attentionScore({
@@ -272,6 +293,7 @@ export async function getOverview(env: Env): Promise<Record<string, unknown>> {
       openIssues: operational.reduce((sum, repo) => sum + repo.openIssues, 0),
       openPullRequests: operational.reduce((sum, repo) => sum + (repo.openPullRequests ?? 0), 0),
       stalePullRequests: operational.reduce((sum, repo) => sum + (repo.stalePullRequests ?? 0), 0),
+      stalePullRequestsSampled: operational.some((repo) => repo.stalePullRequestsSampled),
       actionRuns: actionRows.reduce((sum, repo) => sum + (repo.actions?.totalRuns ?? 0), 0),
       actionSamplePassRate: successes + failures > 0 ? successes / (successes + failures) : null,
       failedRunsLast7dSample: actionRows.reduce((sum, repo) => sum + (repo.actions?.failedLast7d ?? 0), 0),
@@ -375,17 +397,15 @@ export async function getRepositoryDetail(env: Env, repoName: string): Promise<R
       available: pulls.available,
       count: pulls.available ? pulls.count : null,
       stale: pulls.available ? pulls.stale : null,
-      open: [...pulls.pulls]
-        .sort((left, right) => Date.parse(right.updated_at ?? "") - Date.parse(left.updated_at ?? ""))
-        .slice(0, 50)
-        .map((pull) => ({
-          number: pull.number ?? null,
-          title: pull.title ?? null,
-          draft: Boolean(pull.draft),
-          author: pull.user?.login ?? null,
-          updatedAt: pull.updated_at ?? null,
-          url: pull.html_url ?? null,
-        })),
+      staleSampled: pulls.available ? pulls.staleSampled : false,
+      open: pulls.pulls.slice(0, 50).map((pull) => ({
+        number: pull.number ?? null,
+        title: pull.title ?? null,
+        draft: Boolean(pull.draft),
+        author: pull.user?.login ?? null,
+        updatedAt: pull.updated_at ?? null,
+        url: pull.html_url ?? null,
+      })),
     },
     security: {
       codeScanning: code.available ? { count: code.value.length, severities: severityCounts(code.value, (item) => item.rule?.security_severity_level || item.rule?.severity), truncated: code.truncated } : null,
