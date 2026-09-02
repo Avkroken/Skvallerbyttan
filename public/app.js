@@ -228,7 +228,7 @@ function renderRepoDetail(data) {
       </article>
 
       <article class="panel wide">
-        <h3>Actions</h3>
+        <h3>Actions · sample</h3>
         ${actionSummary ? kv([
           ["Totalt antal runs", fmtInt(actionSummary.totalRuns)],
           ["Sample", fmtInt(actionSummary.sampledRuns)],
@@ -323,13 +323,18 @@ async function loadRepo(name) {
   detail.scrollIntoView({ behavior: "smooth", block: "start" });
   try {
     const encoded = encodeURIComponent(name);
-    const [data, insights] = await Promise.all([
-      api(`/api/repos/${encoded}`),
-      api(`/api/insights/${encoded}`).catch(() => null),
-    ]);
-    data.insights = insights;
+    const data = await api(`/api/repos/${encoded}`);
+    data.insights = null;
     renderRepoDetail(data);
     history.replaceState(null, "", `#repo=${encoded}`);
+
+    api(`/api/insights/${encoded}`)
+      .then((insights) => {
+        if (location.hash !== `#repo=${encoded}`) return;
+        data.insights = insights;
+        renderRepoDetail(data);
+      })
+      .catch(() => {});
   } catch (error) {
     content.innerHTML = `<p class="error-text">Kunde inte läsa repo-data: ${esc(error.message)}</p>`;
   }
