@@ -1,6 +1,15 @@
 import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
 import { GitHubApiError } from "./github";
+import { getRepositoryInsights } from "./insights";
+import {
+  captureOverviewSnapshot,
+  getHistory,
+  historyConfigured,
+  previousOverviewSnapshot,
+  sinceLast,
+  snapshotFromOverview,
+} from "./history";
 import {
   authConfigured,
   authenticatedUserId,
@@ -77,23 +86,87 @@ async function cachedJson(
   return response;
 }
 
+function validRepoSegment(value: string): string | null {
+  let repo: string;
+  try {
+    repo = decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+  if (!REPO_NAME.test(repo) || repo === "." || repo === "..") return null;
+  return repo;
+}
+
+async function overviewWithHistory(env: Env, context: ExecutionContext): Promise<Record<string, unknown>> {
+  const overview = await getOverview(env);
+  if (!historyConfigured(env)) {
+    return {
+      ...overview,
+      history: { available: false, reason: "d1-not-bound" },
+      sinceLast: { available: false, reason: "d1-not-bound" },
+    };
+  }
+
+  const current = snapshotFromOverview(overview);
+  let previous = null;
+  try {
+    previous = await previousOverviewSnapshot(env, current.bucket);
+  } catch (error) {
+    console.error("statistics history read failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      ...overview,
+      history: { available: false, reason: "d1-unavailable" },
+      sinceLast: { available: false, reason: "d1-unavailable" },
+    };
+  }
+
+  context.waitUntil(captureOverviewSnapshot(env, overview).catch((error) => {
+    console.error("statistics history write failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }));
+
+  return {
+    ...overview,
+    history: { available: true, bucket: current.bucket },
+    sinceLast: sinceLast(current, previous),
+  };
+}
+
 async function handleApi(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/overview") {
-    return cachedJson(request, context, () => getOverview(env));
+    return cachedJson(request, context, () => overviewWithHistory(env, context));
+  }
+
+  if (url.pathname === "/api/history") {
+    const rawRepo = url.searchParams.get("repo");
+    const repo = rawRepo === null ? null : validRepoSegment(rawRepo);
+    if (rawRepo !== null && repo === null) return json({ error: "invalid repository name" }, 400);
+    const days = Number(url.searchParams.get("days") ?? "90");
+    try {
+      return json(await getHistory(env, repo, Number.isFinite(days) ? days : 90), 200, { "Cache-Control": "private, max-age=0" });
+    } catch (error) {
+      console.error("statistics history query failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return json({ available: false, reason: "d1-unavailable", points: [] }, 200, { "Cache-Control": "private, max-age=0" });
+    }
+  }
+
+  const insightMatch = url.pathname.match(/^\/api\/insights\/([^/]+)$/);
+  if (insightMatch) {
+    const repo = validRepoSegment(insightMatch[1]);
+    if (!repo) return json({ error: "invalid repository name" }, 400);
+    return cachedJson(request, context, () => getRepositoryInsights(env, repo));
   }
 
   const match = url.pathname.match(/^\/api\/repos\/([^/]+)$/);
   if (match) {
-    let repo: string;
-    try {
-      repo = decodeURIComponent(match[1]);
-    } catch {
-      return json({ error: "invalid repository name" }, 400);
-    }
-    if (!REPO_NAME.test(repo) || repo === "." || repo === "..") {
-      return json({ error: "invalid repository name" }, 400);
-    }
+    const repo = validRepoSegment(match[1]);
+    if (!repo) return json({ error: "invalid repository name" }, 400);
     return cachedJson(request, context, () => getRepositoryDetail(env, repo));
   }
 
@@ -115,6 +188,7 @@ export default {
           service: "skvallerbyttan",
           purpose: "github-dashboard",
           check: "configuration",
+          statisticsHistory: historyConfigured(env),
         },
         configured(env) ? 200 : 503,
       );
