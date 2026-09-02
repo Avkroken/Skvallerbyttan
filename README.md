@@ -1,6 +1,6 @@
 # Skvallerbyttan
 
-Skvallerbyttan är Avkrokens GitHub-dashboard. Den körs som en Cloudflare Worker på `skvallerbyttan.denied.se`, använder Gamnacke som GitHub App för read-only datainsamling och Krösa-Maja som GitHub OAuth App för mänsklig inloggning.
+Skvallerbyttan är Avkrokens GitHub-dashboard. Den körs som en Cloudflare Worker på `skvallerbyttan.denied.se`, använder organisationens befintliga GitHub App Gamnacke för read-only datainsamling och GitHub OAuth App Krösa-Maja för mänsklig inloggning.
 
 ## Prioritet
 
@@ -12,44 +12,40 @@ Dashboarden implementeras i fallande nytta:
 
 ## Säkerhetsmodell
 
-Dashboarden är inte publik. Workern kör före dashboardens statiska assets och `/api/*`.
+Dashboarden är inte publik. Workern kör före alla statiska assets och kräver en giltig GitHub OAuth-session.
 
-Mänsklig inloggning går via Krösa-Maja som GitHub OAuth App. Skvallerbyttan har ingen signup och skapar inga egna användarkonton. Efter OAuth-callback hämtas GitHub-användarens numeriska ID och jämförs med den explicita allowlisten `SKVALLERBYTTAN_ALLOWED_GITHUB_IDS` i `wrangler.jsonc`.
+- **Krösa-Maja** är GitHub OAuth App för mänsklig inloggning.
+- **Gamnacke** är GitHub App för dashboardens read-only GitHub-data.
+- Ingen signup eller lokal kontodatabas finns.
+- Tillåtna användare styrs av numeriska GitHub user IDs i `SKVALLERBYTTAN_ALLOWED_GITHUB_IDS`.
+- OAuth-flödet använder `state` och PKCE S256.
+- Sessionen ligger i en signerad HttpOnly/Secure/SameSite=Lax-cookie med högst 12 timmars giltighet och revalideras mot aktuell allowlist vid varje request.
+- Den tillfälliga OAuth-tokenen lagras inte och återkallas efter identitetsuppslag när GitHub tillåter det.
 
-OAuth-flödet använder `state` och PKCE. GitHub-tokenen används endast för identitetsuppslaget och lagras inte. Workern försöker dessutom återkalla tokenen direkt efter uppslaget.
+Gamnackes privata nyckel ligger endast som Cloudflare-secret `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY`. Installation access tokens skickas aldrig till klienten. Secret Scanning-data reduceras till counts och secret-typer; själva secret-värdet returneras aldrig av dashboard-API:t.
 
-En lyckad inloggning ger en signerad `HttpOnly`, `Secure`, `SameSite=Lax` sessionscookie. Sessionen är stateless, gäller i högst 12 timmar och verifieras mot aktuell allowlist vid varje request. Ingen D1- eller KV-lagring behövs för login. Rotation av `SKVALLERBYTTAN_SESSION_SECRET` gör befintliga sessioner ogiltiga direkt.
-
-Krösa-Majas Client Secret ligger endast som Cloudflare-secret `SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET`. Sessionsnyckeln ligger endast som `SKVALLERBYTTAN_SESSION_SECRET`.
-
-Gamnacke används separat för dashboardens GitHub API-data. Dess privata nyckel ligger endast som Cloudflare-secret `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY`. Installation access tokens skickas aldrig till klienten. Secret Scanning-data reduceras till counts och secret-typer; själva secret-värdet returneras aldrig av dashboard-API:t.
+Krösa-Majas OAuth Client Secret ligger endast som Cloudflare-secret `SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET`. Sessionsignering använder endast Cloudflare-secret `SKVALLERBYTTAN_SESSION_SECRET`.
 
 Om Gamnacke saknar read-permission för en endpoint returnerar dashboarden den kapabiliteten som otillgänglig utan att övrig statistik faller.
 
-## OAuth-konfiguration
-
-Krösa-Majas OAuth App ska ha callback-URL:
-
-```text
-https://skvallerbyttan.denied.se/auth/github/callback
-```
-
-Krösa-Majas Client ID är inte hemligt och ligger som `SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID` i `wrangler.jsonc`. Client Secret får aldrig committas.
-
-Tillåtna GitHub-konton anges med numeriska GitHub user IDs i `SKVALLERBYTTAN_ALLOWED_GITHUB_IDS`, separerade med kommatecken. Använd inte GitHub-login som långsiktig identitetsnyckel eftersom login-namn kan bytas.
-
 ## Runtime
 
-- HTTP-gräns, routing och cache: `src/worker.ts`
-- OAuth och sessionsverifiering: `src/auth.ts`
-- Gamnacke GitHub App-auth och API-klient: `src/github.ts`
+- Cloudflare Worker: `src/worker.ts`
+- OAuth och sessionsauth: `src/auth.ts`
+- GitHub App-auth och API-klient: `src/github.ts`
 - Aggregering och repo-detaljer: `src/data.ts`
 - Rena metrics-funktioner: `src/metrics.ts`
 - Frontend: `public/`
 - Worker-konfiguration: `wrangler.jsonc`
 - Produktion: Cloudflare Workers Builds från `main`
 
-`/healthz` är en enkel process-health endpoint. `/ready` verifierar att obligatorisk Gamnacke-, Krösa-Maja-, session- och allowlist-konfiguration finns. `/ready` gör inte ett live-anrop till GitHub.
+`/healthz` är en enkel process-health endpoint. `/ready` verifierar att obligatorisk Gamnacke-, Krösa-Maja- och sessionskonfiguration finns.
+
+OAuth callback för Krösa-Maja ska vara exakt:
+
+```text
+https://skvallerbyttan.denied.se/auth/github/callback
+```
 
 ## GitHub App permissions
 
@@ -72,6 +68,8 @@ SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET="..."
 SKVALLERBYTTAN_SESSION_SECRET="..."
 ```
 
+Icke-hemliga Client IDs, organisation och GitHub user-ID-allowlist ligger i `wrangler.jsonc`.
+
 ## Deploy
 
-Normal produktionsdeploy ägs av Cloudflare Workers Builds efter merge till `main`. `npm run deploy` är den deklarerade Wrangler-deploykommandot och `npm run verify:production` verifierar `/ready`.
+Normal produktionsdeploy ägs av Cloudflare Workers Builds efter merge till `main`. `npm run deploy` är Wrangler-deploykommandot och `npm run verify:production` verifierar `/ready`.
