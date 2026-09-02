@@ -16,9 +16,10 @@ Den här filen är repositoryts auktoritativa arbetsinstruktion. Live GitHub-kon
 
 ## Brancher och pull requests
 
-- Arbeta på `dev`.
-- Produktionsändringar går via PR `dev` -> `main`.
-- Skapa inte fler arbetsbrancher utan uttryckligt beslut om att ändra branchmodellen.
+- `main` är den enda permanenta branchen och den enda branch som ska vara skyddad.
+- Allt arbete sker på kortlivade feature/fix/chore-brancher skapade från aktuell `main`, till exempel `codex/{feature}`.
+- Öppna PR direkt från arbetsbranchen till `main`; det finns ingen permanent `dev`-branch.
+- Brancher städas automatiskt efter merge; gör ingen normal manuell branch-cleanup.
 - Kringgå aldrig rulesets, required checks, reviews eller thread resolution.
 - Squash är målmetoden när live-policy tillåter/kräver det.
 
