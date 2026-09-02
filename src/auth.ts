@@ -7,6 +7,7 @@ const OAUTH_COOKIE = "__Host-skvallerbyttan_oauth";
 const SESSION_COOKIE = "__Host-skvallerbyttan_session";
 const OAUTH_TTL_SECONDS = 10 * 60;
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
+const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
 
 interface SessionPayload {
   v: 1;
@@ -93,6 +94,8 @@ function allowedIds(env: Env): Set<number> {
 
 export function authConfigured(env: Env): boolean {
   return Boolean(
+    env.SKVALLERBYTTAN_GAMNACKE_CLIENT_ID?.trim() &&
+    env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY &&
     env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID?.trim() &&
     env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET &&
     env.SKVALLERBYTTAN_SESSION_SECRET &&
@@ -197,6 +200,7 @@ export async function startGitHubLogin(env: Env): Promise<Response> {
 async function exchangeCode(env: Env, code: string, verifier: string): Promise<string> {
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
+    signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
     headers: {
       Accept: "application/json",
       "Content-Type": "application/x-www-form-urlencoded",
@@ -218,6 +222,7 @@ async function exchangeCode(env: Env, code: string, verifier: string): Promise<s
 
 async function fetchGitHubUser(accessToken: string): Promise<GitHubUser> {
   const response = await fetch("https://api.github.com/user", {
+    signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${accessToken}`,
@@ -236,6 +241,7 @@ async function revokeGitHubToken(env: Env, accessToken: string): Promise<void> {
       `https://api.github.com/applications/${encodeURIComponent(env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID)}/token`,
       {
         method: "DELETE",
+        signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
         headers: {
           Accept: "application/vnd.github+json",
           Authorization: `Basic ${credentials}`,
