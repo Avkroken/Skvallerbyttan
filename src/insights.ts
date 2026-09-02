@@ -88,6 +88,10 @@ export async function getRepositoryInsights(env: Env, repoName: string): Promise
     })) : [],
   })));
   const reviewLookupsAvailable = reviewLookups.filter((entry) => entry.result.available).length;
+  const failedReviewLookup = reviewLookups.find((entry) => !entry.result.available);
+  const reviewFailure = failedReviewLookup && !failedReviewLookup.result.available
+    ? failedReviewLookup.result
+    : null;
 
   const runs = actionsResult.available ? actionsResult.value.workflow_runs ?? [] : [];
   const actionSummary = actionsResult.available
@@ -158,8 +162,8 @@ export async function getRepositoryInsights(env: Env, repoName: string): Promise
       capability(
         "pull-request-reviews",
         reviewLookups.length === 0 || reviewLookupsAvailable === reviewLookups.length,
-        reviewLookups.find((entry) => !entry.result.available)?.result.status ?? 200,
-        reviewLookups.find((entry) => !entry.result.available)?.result.reason,
+        reviewFailure?.status ?? 200,
+        reviewFailure?.reason,
       ),
       capability("actions-insights", actionsResult.available, actionsResult.status, actionsResult.available ? undefined : actionsResult.reason),
       capability("deployment-insights", deploymentsResult.available, deploymentsResult.status, deploymentsResult.available ? undefined : deploymentsResult.reason),
