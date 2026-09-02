@@ -92,6 +92,11 @@ export async function getRepositoryInsights(env: Env, repoName: string): Promise
   const reviewFailure = failedReviewLookup && !failedReviewLookup.result.available
     ? failedReviewLookup.result
     : null;
+  const reviewCapability = !pullsResult.available
+    ? capability("pull-request-reviews", false, pullsResult.status, pullsResult.reason)
+    : reviewFailure
+      ? capability("pull-request-reviews", false, reviewFailure.status, reviewFailure.reason)
+      : capability("pull-request-reviews", true, pullsResult.status);
 
   const runs = actionsResult.available ? actionsResult.value.workflow_runs ?? [] : [];
   const actionSummary = actionsResult.available
@@ -159,12 +164,7 @@ export async function getRepositoryInsights(env: Env, repoName: string): Promise
     },
     capabilities: [
       capability("closed-pull-requests", pullsResult.available, pullsResult.status, pullsResult.available ? undefined : pullsResult.reason),
-      capability(
-        "pull-request-reviews",
-        reviewLookups.length === 0 || reviewLookupsAvailable === reviewLookups.length,
-        reviewFailure?.status ?? 200,
-        reviewFailure?.reason,
-      ),
+      reviewCapability,
       capability("actions-insights", actionsResult.available, actionsResult.status, actionsResult.available ? undefined : actionsResult.reason),
       capability("deployment-insights", deploymentsResult.available, deploymentsResult.status, deploymentsResult.available ? undefined : deploymentsResult.reason),
       capability("participation-trend", participationResult.available, participationResult.status, participationResult.available ? undefined : participationResult.reason),
