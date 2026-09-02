@@ -1,6 +1,14 @@
 import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
 import { GitHubApiError } from "./github";
+import {
+  authConfigured,
+  authenticatedUserId,
+  handleGitHubCallback,
+  loginPage,
+  logout,
+  startGitHubLogin,
+} from "./auth";
 
 const CACHE_SECONDS = 300;
 const REPO_NAME = /^[A-Za-z0-9_.-]+$/;
@@ -14,51 +22,19 @@ function json(value: unknown, status = 200, extraHeaders?: HeadersInit): Respons
 
 function configured(env: Env): boolean {
   return Boolean(
-    env.SKVALLERBYTTAN_CLIENT_ID &&
-    env.SKVALLERBYTTAN_APP_PRIVATE_KEY &&
-    env.SKVALLERBYTTAN_DASHBOARD_PASSWORD,
+    env.SKVALLERBYTTAN_GAMNACKE_CLIENT_ID?.trim() &&
+    env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY &&
+    authConfigured(env),
   );
 }
 
-function safeEqual(left: string, right: string): boolean {
-  const leftBytes = new TextEncoder().encode(left);
-  const rightBytes = new TextEncoder().encode(right);
-  const length = Math.max(leftBytes.length, rightBytes.length);
-  let diff = leftBytes.length ^ rightBytes.length;
-  for (let index = 0; index < length; index += 1) {
-    diff |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
-  }
-  return diff === 0;
-}
-
-function authorized(request: Request, env: Env): boolean {
-  const password = env.SKVALLERBYTTAN_DASHBOARD_PASSWORD;
-  if (!password) return false;
-  const auth = request.headers.get("authorization");
-  if (!auth?.startsWith("Basic ")) return false;
-
-  try {
-    const raw = atob(auth.slice(6));
-    const bytes = Uint8Array.from(raw, (character) => character.charCodeAt(0));
-    const decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
-    const separator = decoded.indexOf(":");
-    if (separator < 0) return false;
-    const username = decoded.slice(0, separator);
-    const suppliedPassword = decoded.slice(separator + 1);
-    const expectedUsername = env.SKVALLERBYTTAN_DASHBOARD_USERNAME?.trim() || "avkroken";
-    return safeEqual(username, expectedUsername) && safeEqual(suppliedPassword, password);
-  } catch {
-    return false;
-  }
-}
-
-function authRequired(): Response {
-  return new Response("Authentication required", {
-    status: 401,
+function redirectToLogin(): Response {
+  return new Response(null, {
+    status: 303,
     headers: {
-      "WWW-Authenticate": 'Basic realm="Skvallerbyttan", charset="UTF-8"',
+      Location: "/login",
       "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
     },
   });
 }
@@ -91,7 +67,7 @@ async function cachedJson(
 
   const value = await loader();
   const response = json(value, 200, {
-    "Cache-Control": `private, max-age=0`,
+    "Cache-Control": "private, max-age=0",
     "X-Skvallerbyttan-Cache": "miss",
     "X-Skvallerbyttan-Cache-Ttl": String(CACHE_SECONDS),
   });
@@ -144,22 +120,53 @@ export default {
       );
     }
 
-    if (!configured(env)) {
-      return json(
-        {
-          error: "dashboard is not fully configured",
-          required: [
-            "SKVALLERBYTTAN_CLIENT_ID",
-            "SKVALLERBYTTAN_APP_PRIVATE_KEY",
-            "SKVALLERBYTTAN_DASHBOARD_PASSWORD",
-          ],
-        },
-        503,
-        { "Cache-Control": "no-store" },
-      );
+    if (url.pathname === "/login") {
+      return loginPage(request, authConfigured(env));
     }
 
-    if (!authorized(request, env)) return authRequired();
+    if (url.pathname === "/auth/github") {
+      if (request.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
+      return startGitHubLogin(env);
+    }
+
+    if (url.pathname === "/auth/github/callback") {
+      if (request.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
+      return handleGitHubCallback(request, env);
+    }
+
+    if (url.pathname === "/auth/logout") {
+      if (request.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
+      return logout();
+    }
+
+    if (!configured(env)) {
+      if (url.pathname.startsWith("/api/")) {
+        return json(
+          {
+            error: "dashboard is not fully configured",
+            required: [
+              "SKVALLERBYTTAN_GAMNACKE_CLIENT_ID",
+              "SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY",
+              "SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID",
+              "SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET",
+              "SKVALLERBYTTAN_SESSION_SECRET",
+              "SKVALLERBYTTAN_ALLOWED_GITHUB_IDS",
+            ],
+          },
+          503,
+          { "Cache-Control": "no-store" },
+        );
+      }
+      return redirectToLogin();
+    }
+
+    const userId = await authenticatedUserId(request, env);
+    if (!userId) {
+      if (url.pathname.startsWith("/api/")) {
+        return json({ error: "authentication required" }, 401, { "Cache-Control": "no-store" });
+      }
+      return redirectToLogin();
+    }
 
     try {
       if (url.pathname.startsWith("/api/")) {

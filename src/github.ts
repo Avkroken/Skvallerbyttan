@@ -70,12 +70,12 @@ async function appJwt(env: Env): Promise<string> {
   const payload = base64url(JSON.stringify({
     iat: now - 60,
     exp: now + 540,
-    iss: env.SKVALLERBYTTAN_CLIENT_ID,
+    iss: env.SKVALLERBYTTAN_GAMNACKE_CLIENT_ID,
   }));
   const unsigned = `${header}.${payload}`;
   const key = await crypto.subtle.importKey(
     "pkcs8",
-    pemPkcs8Bytes(env.SKVALLERBYTTAN_APP_PRIVATE_KEY),
+    pemPkcs8Bytes(env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"],

@@ -1,6 +1,6 @@
 # Skvallerbyttan
 
-Skvallerbyttan är Avkrokens GitHub-dashboard. Den körs som en Cloudflare Worker på `skvallerbyttan.denied.se`, använder organisationens befintliga GitHub App för read-only datainsamling och visar organisationsöversikt samt repo-specifik statistik.
+Skvallerbyttan är Avkrokens GitHub-dashboard. Den körs som en Cloudflare Worker på `skvallerbyttan.denied.se`, använder organisationens befintliga GitHub App Gamnacke för read-only datainsamling och GitHub OAuth App Krösa-Maja för mänsklig inloggning.
 
 ## Prioritet
 
@@ -12,15 +12,26 @@ Dashboarden implementeras i fallande nytta:
 
 ## Säkerhetsmodell
 
-Dashboarden är inte publik. Workern kör före alla statiska assets och kräver HTTP Basic-auth. Användarnamnet ligger i `wrangler.jsonc`; lösenordet ligger endast som Cloudflare-secret `SKVALLERBYTTAN_DASHBOARD_PASSWORD`.
+Dashboarden är inte publik. Workern kör före alla statiska assets och kräver en giltig GitHub OAuth-session.
 
-GitHub Appens privata nyckel ligger endast som Cloudflare-secret `SKVALLERBYTTAN_APP_PRIVATE_KEY`. Installation access tokens skickas aldrig till klienten. Secret Scanning-data reduceras till counts och secret-typer; själva secret-värdet returneras aldrig av dashboard-API:t.
+- **Krösa-Maja** är GitHub OAuth App för mänsklig inloggning.
+- **Gamnacke** är GitHub App för dashboardens read-only GitHub-data.
+- Ingen signup eller lokal kontodatabas finns.
+- Tillåtna användare styrs av numeriska GitHub user IDs i `SKVALLERBYTTAN_ALLOWED_GITHUB_IDS`.
+- OAuth-flödet använder `state` och PKCE S256.
+- Sessionen ligger i en signerad HttpOnly/Secure/SameSite=Lax-cookie med högst 12 timmars giltighet och revalideras mot aktuell allowlist vid varje request.
+- Den tillfälliga OAuth-tokenen lagras inte och återkallas efter identitetsuppslag när GitHub tillåter det.
 
-Om GitHub Appen saknar read-permission för en endpoint returnerar dashboarden den kapabiliteten som otillgänglig utan att övrig statistik faller.
+Gamnackes privata nyckel ligger endast som Cloudflare-secret `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY`. Installation access tokens skickas aldrig till klienten. Secret Scanning-data reduceras till counts och secret-typer; själva secret-värdet returneras aldrig av dashboard-API:t.
+
+Krösa-Majas OAuth Client Secret ligger endast som Cloudflare-secret `SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET`. Sessionsignering använder endast Cloudflare-secret `SKVALLERBYTTAN_SESSION_SECRET`.
+
+Om Gamnacke saknar read-permission för en endpoint returnerar dashboarden den kapabiliteten som otillgänglig utan att övrig statistik faller.
 
 ## Runtime
 
 - Cloudflare Worker: `src/worker.ts`
+- OAuth och sessionsauth: `src/auth.ts`
 - GitHub App-auth och API-klient: `src/github.ts`
 - Aggregering och repo-detaljer: `src/data.ts`
 - Rena metrics-funktioner: `src/metrics.ts`
@@ -28,11 +39,17 @@ Om GitHub Appen saknar read-permission för en endpoint returnerar dashboarden d
 - Worker-konfiguration: `wrangler.jsonc`
 - Produktion: Cloudflare Workers Builds från `main`
 
-`/healthz` är en enkel process-health endpoint. `/ready` verifierar att obligatorisk GitHub App-konfiguration och dashboard-lösenord finns.
+`/healthz` är en enkel process-health endpoint. `/ready` verifierar att obligatorisk Gamnacke-, Krösa-Maja- och sessionskonfiguration finns.
+
+OAuth callback för Krösa-Maja ska vara exakt:
+
+```text
+https://skvallerbyttan.denied.se/auth/github/callback
+```
 
 ## GitHub App permissions
 
-Basdata kräver Metadata read. Fler sektioner blir tillgängliga när appen har motsvarande read-permissions, bland annat Actions, Administration (repository traffic), Code scanning alerts / Security events, Dependabot alerts och Secret scanning alerts.
+Basdata kräver Metadata read. Fler sektioner blir tillgängliga när Gamnacke har motsvarande read-permissions, bland annat Actions, Administration (repository traffic), Code scanning alerts / Security events, Dependabot alerts och Secret scanning alerts.
 
 Dashboarden ska degradera läsbart vid 403/404 i stället för att anta att en permission finns.
 
@@ -46,10 +63,13 @@ npm run check
 För lokal Worker-körning lägg secrets i `.dev.vars` och committa aldrig filen:
 
 ```text
-SKVALLERBYTTAN_APP_PRIVATE_KEY="..."
-SKVALLERBYTTAN_DASHBOARD_PASSWORD="..."
+SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY="..."
+SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET="..."
+SKVALLERBYTTAN_SESSION_SECRET="..."
 ```
+
+Icke-hemliga Client IDs, organisation och GitHub user-ID-allowlist ligger i `wrangler.jsonc`.
 
 ## Deploy
 
-Normal produktionsdeploy ägs av Cloudflare Workers Builds efter merge till `main`. `npm run deploy` är fortfarande den deklarerade Wrangler-deploykommandot och `npm run verify:production` verifierar `/ready`.
+Normal produktionsdeploy ägs av Cloudflare Workers Builds efter merge till `main`. `npm run deploy` är Wrangler-deploykommandot och `npm run verify:production` verifierar `/ready`.

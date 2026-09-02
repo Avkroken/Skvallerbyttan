@@ -23,9 +23,10 @@ h3 { margin-bottom: 10px; font-size: 1rem; }
 section { margin-top: 36px; }
 .section-heading { margin-bottom: 14px; }
 .section-heading > .muted { max-width: 520px; margin-bottom: 2px; text-align: right; }
-button { border: 1px solid #334155; background: #eef6ff; color: #08111c; border-radius: 10px; padding: 9px 13px; font-weight: 700; cursor: pointer; }
-button.secondary { background: transparent; color: #dbe8f6; }
-button:hover { filter: brightness(1.06); }
+button, .button-link { border: 1px solid #334155; background: #eef6ff; color: #08111c; border-radius: 10px; padding: 9px 13px; font-weight: 700; cursor: pointer; }
+.button-link { display: inline-flex; align-items: center; text-decoration: none; }
+button.secondary, .button-link.secondary { background: transparent; color: #dbe8f6; }
+button:hover, .button-link:hover { filter: brightness(1.06); }
 .cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
 .card, .panel, .roadmap, .detail { border: 1px solid #253041; background: rgba(14, 18, 24, .88); border-radius: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.2); }
 .card { padding: 16px; min-height: 118px; }
@@ -93,7 +94,7 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 680px) {
   .shell { width: min(100% - 20px, 1240px); padding-top: 22px; }
   .topbar, .section-heading { align-items: flex-start; flex-direction: column; }
-  .topbar-actions { width: 100%; justify-content: space-between; }
+  .topbar-actions { width: 100%; justify-content: space-between; flex-wrap: wrap; }
   .section-heading > .muted { text-align: left; }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panel, .panel.wide { grid-column: 1 / -1; }
