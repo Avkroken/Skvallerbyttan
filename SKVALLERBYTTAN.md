@@ -2,6 +2,8 @@
 
 Repository-specific instructions for `Avkroken/Skvallerbyttan`. These instructions supplement the canonical Avkroken policy in `Avkroken/.github/AGENTS.md`.
 
+Live GitHub rules and required checks are intentionally not duplicated here; inspect current repository and organization enforcement when merge eligibility matters.
+
 ## Repository architecture
 
 `Skvallerbyttan` is Avkroken's GitHub statistics dashboard.
