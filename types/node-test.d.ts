@@ -24,16 +24,18 @@ declare module "node:test" {
     | ((context: TestContext, done: (result?: unknown) => void) => unknown);
 
   interface TestContext {
+    test(): Promise<void>;
     test(callback: TestCallback): Promise<void>;
-    test(options: TestOptions, callback: TestCallback): Promise<void>;
-    test(name: string, callback: TestCallback): Promise<void>;
+    test(options: TestOptions, callback?: TestCallback): Promise<void>;
+    test(name: string, callback?: TestCallback): Promise<void>;
     test(name: string, options: TestOptions, callback?: TestCallback): Promise<void>;
   }
 
   interface TestFunction {
+    (): Promise<void>;
     (callback: TestCallback): Promise<void>;
-    (options: TestOptions, callback: TestCallback): Promise<void>;
-    (name: string, callback: TestCallback): Promise<void>;
+    (options: TestOptions, callback?: TestCallback): Promise<void>;
+    (name: string, callback?: TestCallback): Promise<void>;
     (name: string, options: TestOptions, callback?: TestCallback): Promise<void>;
   }
 
