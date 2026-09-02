@@ -1,6 +1,6 @@
 # SKVALLERBYTTAN.md
 
-Repository-specific instructions for `Avkroken/Skvallerbyttan`. These instructions supplement the canonical Avkroken policy in `Avkroken/.github/AGENTS.md`.
+This is the repository governance document for `Avkroken/Skvallerbyttan`. Binding AI coding-agent policy is defined only in `Avkroken/.github/AGENTS.md`. This document records repository-specific technical contracts, invariants, validation requirements, and operational context required by that policy; it must not define, supplement, narrow, or override agent policy.
 
 Live GitHub rules and required checks are intentionally not duplicated here; inspect current repository and organization enforcement when merge eligibility matters.
 
