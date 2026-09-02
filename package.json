@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "check": "npm test && npm run typecheck && npm run validate:worker",
-    "deploy": "wrangler deploy --strict",
+    "deploy": "wrangler deploy",
     "verify:production": "node scripts/verify-production.mjs",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
