@@ -4,6 +4,7 @@ export interface AssetsBinding {
 
 export interface Env {
   ASSETS: AssetsBinding;
+  STATS_DB?: D1Database;
   SKVALLERBYTTAN_GAMNACKE_CLIENT_ID: string;
   SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY: string;
   SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID: string;
