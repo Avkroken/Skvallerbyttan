@@ -1,21 +1,13 @@
 # Security Policy
 
-## Supported Versions
+## Supported version
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Only the current `main` branch is supported with security fixes.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Do not open a public issue for a security vulnerability. Report it privately through GitHub's **Report a vulnerability** function under the repository's Security tab.
 
-Use this section to tell people how to report a vulnerability.
+Include a concise description, reproduction steps, potential impact and any relevant mitigation information. Do not include credentials, tokens, private keys or other secrets in public issues, pull requests or logs.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+Repository-specific security invariants are maintained in `SKVALLERBYTTAN.md`; live merge enforcement is intentionally not duplicated here.
