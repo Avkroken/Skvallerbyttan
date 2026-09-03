@@ -7,11 +7,10 @@ on:
     - cron: '47 * * * *'
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  issues: write
+  pull-requests: write
 
 jobs:
   metadata:
-    permissions:
-      issues: write
-      pull-requests: write
     uses: Avkroken/.github/.github/workflows/metadata-orchestration.yml@980d67fa6e18a4800dd90fdf5cd8f463b236de6c
