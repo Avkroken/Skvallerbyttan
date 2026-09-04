@@ -30,6 +30,15 @@ D1-historiken lagrar endast härledda/aggregerade repo- och organisationsmått. 
 
 Om Gamnacke saknar read-permission för en endpoint returnerar dashboarden den kapabiliteten som otillgänglig utan att övrig statistik faller.
 
+## Credential scopes
+
+Skvallerbyttans **Worker-runtime** och repositoryts **GitHub Actions-automation** använder samma GitHub App men hämtar credentials från två separata konfigurationslager:
+
+- Cloudflare Worker använder `SKVALLERBYTTAN_GAMNACKE_CLIENT_ID` som versionerad Worker-variable i `wrangler.jsonc` och `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY` som Cloudflare-secret.
+- GitHub Actions-automation använder organisationens kanoniska `GAMNACKEN_CLIENT_ID` (Actions-variable) och `GAMNACKEN_PRIVATE_KEY` (Actions-secret med PEM/private key). Den centrala reusable workflowen läser Client ID och caller-workflowen mappar private key.
+
+GitHub Actions variables/secrets ärvs inte av Cloudflare Workers, och Cloudflare-bindings ärvs inte av GitHub Actions. Namnen ska därför inte likriktas genom en vanlig kodrename; en ändring av Worker-bindings kräver en samordnad Cloudflare-konfigurationsmigration.
+
 ## Runtime
 
 - Cloudflare Worker: `src/worker.ts`

@@ -48,6 +48,9 @@ Mark metrics as sampled/truncated when the API does not provide full history. De
 - `wrangler.jsonc` keeps Worker name `skvallerbyttan` and custom domain `skvallerbyttan.denied.se`.
 - GitHub Actions must not duplicate production deployment; Cloudflare Workers Builds owns it.
 - Runtime secrets belong in Cloudflare, not Git or GitHub Actions.
+- The Worker uses `SKVALLERBYTTAN_GAMNACKE_CLIENT_ID` as its Cloudflare variable and `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY` as its Cloudflare secret. These are runtime bindings and are not inherited from GitHub Actions.
+- Repository GitHub Actions automation uses the organization-standard `GAMNACKEN_CLIENT_ID` Actions variable and `GAMNACKEN_PRIVATE_KEY` Actions secret. Those values are not automatically available to the Worker runtime.
+- Do not rename the Worker bindings merely to match GitHub Actions names. Any Worker credential-binding rename requires a coordinated Cloudflare configuration and deployment migration.
 - `assets.run_worker_first` must remain enabled so authentication cannot be bypassed through static assets.
 - D1 binding `STATS_DB` remains optional until a real Cloudflare D1 database exists and its actual `database_id` is versioned. Never commit a placeholder production ID.
 - Apply D1 migrations to the correct database before a deployment that makes the binding mandatory.
