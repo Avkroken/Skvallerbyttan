@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/Avkroken/Skvallerbyttan/compare/v1.0.1...v1.0.2) (2026-09-06)
+
+
+### Documentation
+
+* förenkla REPO.md på svenska ([#110](https://github.com/Avkroken/Skvallerbyttan/issues/110)) ([85510a4](https://github.com/Avkroken/Skvallerbyttan/commit/85510a4de0e0e68025fcb5f42e69889c8e19f158))
+
 ## [1.0.1](https://github.com/Avkroken/Skvallerbyttan/compare/v1.0.0...v1.0.1) (2026-09-05)
 
 
