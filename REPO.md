@@ -1,19 +1,18 @@
 # REPO.md
 
-`Skvallerbyttan` is Avkroken's authenticated GitHub statistics dashboard running as a Cloudflare Worker with D1 history.
+`Skvallerbyttan` är Avkrokens autentiserade GitHub-statistikdashboard som körs som Cloudflare Worker med D1-historik.
 
-## Invariants
+## Invarians
 
-- `main` is the only permanent branch.
-- Dashboard data/assets and `/api/*` stay authenticated. Public auth endpoints must not expose dashboard data.
-- GitHub App private keys, installation tokens, OAuth/session secrets and Secret Scanning values must never be committed, logged, stored in D1 or sent to clients.
-- The OAuth user token is used only for identity lookup during login and is not persisted. Access is bound to numeric GitHub user IDs, not mutable login names.
-- Statistics collection uses minimum read permissions and must not add write operations against other repositories.
-- `src/metrics.ts` remains pure/testable without network calls. Sampled/truncated or derived metrics must be identified as such.
-- `wrangler.jsonc` is the source of truth for versioned Worker configuration; Cloudflare Workers Builds owns production deployment from `main`.
+- Dashboard-data, assets och `/api/*` ska förbli autentiserade. Publika auth-endpoints får inte exponera dashboard-data.
+- GitHub App-private keys, installation tokens, OAuth/session-hemligheter och Secret Scanning-värden får inte committas, loggas, lagras i D1 eller skickas till klienter.
+- OAuth-användartoken används endast för identitetsuppslag vid login och ska inte sparas.
+- Åtkomst binds till numeriska GitHub user IDs, inte föränderliga login-namn.
+- Statistikinsamling använder minsta nödvändiga läsbehörighet och ska inte lägga till skrivoperationer mot andra förråd.
+- `src/metrics.ts` ska förbli ren och testbar utan nätverksanrop. Samplade, trunkerade eller härledda mätvärden ska identifieras som sådana.
+- `wrangler.jsonc` är källa till sanning för versionshanterad Worker-konfiguration.
+- Produktionsdistribution från `main` hanteras av Cloudflare Workers Builds.
 
-## Validation
+## Validering
 
-Run `npm run check` for relevant changes and verify that no credential/secret payload is introduced.
-
-The live repository rules currently require `CI / required`. Do not rename a required check without updating and verifying the live ruleset in the same migration.
+Kör `npm run check` för relevanta ändringar och kontrollera att inga credential- eller secret-payloads introduceras.
