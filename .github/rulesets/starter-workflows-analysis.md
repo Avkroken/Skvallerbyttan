@@ -24,7 +24,12 @@ Starter-workflowen testades på den här PR-branchen men körningen slutade i `s
 
 ## Required checks
 
-Den tidigare versionen av denna PR antog checknamn innan starter-jobben hade kunnat starta. Den repo-specifika required-check-filen är därför borttagen tills den korrigerade Node.js CI- och Dependency review-konfigurationen faktiskt har producerat jobb. Därefter får endast de observerade checknamnen läggas in.
+Efter korrigeringen har båda kvarvarande starter-workflows producerat lyckade jobb på den här PR-branchen. De observerade jobben är:
+
+- Node.js CI: `build (24.x)`
+- Dependency review: `dependency-review`
+
+Dessa är de repo-specifika checknamn som får användas i repositoryts `main`-ruleset. Den tidigare egna checken `CI / required` ska inte längre krävas när workflow-reseten rullas ut.
 
 ## Funktioner som standardmallarna inte täcker
 
