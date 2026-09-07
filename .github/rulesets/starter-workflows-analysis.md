@@ -1,28 +1,44 @@
-# Starter workflow-analys för rulesets
+# Starter-workflow-analys för rulesets
 
-## Källor
-- `actions/starter-workflows/ci/node.js.yml`
-- `actions/starter-workflows/code-scanning/codeql.yml`
-- `actions/starter-workflows/code-scanning/dependency-review.yml`
-- `actions/starter-workflows/code-scanning/osv-scanner.yml`
-- `actions/starter-workflows/.github/dependabot.yml`
+## Aktuell repo-yta
 
-## Checks som produceras av mallarna
+Repositoryt är ett Node/TypeScript-projekt. `package.json` använder Node-baserade tester samt separata `typecheck`- och Wrangler-dry-run-steg.
 
-- `Node.js CI` med `build`-jobb och matrix `22.x`, `24.x` ger checks:
-  - `Node.js CI / build (22.x)`
-  - `Node.js CI / build (24.x)`
-- `CodeQL Advanced` med språk `javascript-typescript` ger check:
-  - `CodeQL Advanced / Analyze (javascript-typescript)`
-- `Dependency review` ger check:
-  - `Dependency review / dependency-review`
-- `OSV-Scanner` ger PR-check:
-  - `OSV-Scanner / scan-pr`
+## Valda standardmallar
 
-## Det som saknar standardmall i starter-workflows
+- `actions/starter-workflows/ci/node.js.yml`, anpassad endast till repositoryts Node 24-runtime.
+- `actions/starter-workflows/code-scanning/dependency-review.yml`.
+- `actions/starter-workflows/.github/dependabot.yml` för npm och GitHub Actions.
 
-- Issue-mall specifikt för security alerts: saknas.
-- PR-mall specifikt för security alerts: saknas.
-- Release-workflow för detta repo-flöde: saknas.
+Action-referenser i workflow-filerna är fullständigt SHA-pinnade till samma v4-referenser som standardmallarna använder, för att passa repositoryts Actions-säkerhetspolicy utan att lägga till egen workflow-logik.
 
-Dessa delar dokumenteras här och ersätts inte med egna workflows eller egna security-alert-mallar.
+## CodeQL
+
+Repositoryt har redan GitHubs CodeQL default setup aktivt; en aktuell dynamisk CodeQL-körning på `main` har lyckats. Därför läggs ingen lokal `codeql.yml` till, så att default setup och Advanced setup inte konkurrerar.
+
+CodeQL-checken läggs inte in i repositoryts versionshanterade required-check-underlag förrän dess faktiska default-setup-checknamn är verifierat som lämpligt för PR-gating.
+
+## OSV-Scanner
+
+Starter-workflowen testades på den här PR-branchen men körningen slutade i `startup_failure` innan GitHub skapade något jobb. Den körningen bevisar därför inget användbart required-checknamn. OSV-workflowen tas bort i stället för att byggas om eller ersättas med en egen variant.
+
+## Required checks
+
+Den tidigare versionen av denna PR antog checknamn innan starter-jobben hade kunnat starta. Den repo-specifika required-check-filen är därför borttagen tills den korrigerade Node.js CI- och Dependency review-konfigurationen faktiskt har producerat jobb. Därefter får endast de observerade checknamnen läggas in.
+
+## Funktioner som standardmallarna inte täcker
+
+Node.js-standardmallen kör `npm test`, men repositoryts tidigare `npm run check` innehöll dessutom:
+
+- `npm run typecheck`,
+- `npm run validate:worker` (Wrangler dry-run).
+
+Dessa repo-specifika valideringar byggs inte in som egna workflow-steg eftersom uppdraget kräver att standardmallens ramar behålls. De dokumenteras som täckningsgap.
+
+Det saknas även en passande starter-mall för:
+
+- security-alert-specifik issue-mall,
+- security-alert-specifik PR-mall,
+- repositoryts tidigare release-orchestration.
+
+Inga egna ersättningar skapas för dessa gap.
