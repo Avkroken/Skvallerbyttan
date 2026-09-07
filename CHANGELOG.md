@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/Avkroken/Skvallerbyttan/compare/v1.0.2...v1.0.3) (2026-09-07)
+
+
+### Documentation
+
+* dokumentera repository-styrning ([#116](https://github.com/Avkroken/Skvallerbyttan/issues/116)) ([2003cde](https://github.com/Avkroken/Skvallerbyttan/commit/2003cde54e39c98d9dac51b46bf05aa974cc4693))
+
 ## [1.0.2](https://github.com/Avkroken/Skvallerbyttan/compare/v1.0.1...v1.0.2) (2026-09-06)
 
 
