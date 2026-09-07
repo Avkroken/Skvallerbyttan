@@ -1,0 +1,30 @@
+{
+  "name": "required-ci",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/main"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "Node.js CI / build (22.x)"
+          },
+          {
+            "context": "Node.js CI / build (24.x)"
+          },
+          {
+            "context": "OSV-Scanner / scan-pr"
+          }
+        ]
+      }
+    }
+  ]
+}

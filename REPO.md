@@ -16,8 +16,8 @@
 ## GitHub-styrning
 
 - Kanonisk arbets- och reviewpolicy finns i `Avkroken/.github/AGENTS.md`.
-- `main` skyddas av det ärvda organisationsrulesetet `main` och repo-rulesetet `required-ci`.
-- Required check på `main` är `CI / required`.
+- `main` skyddas av organisationsfilen `.github/rulesets/main-org.json` och repo-filen `.github/rulesets/required-ci-repo.json`.
+- Required checks på `main` hämtas från check-namnen som produceras av starter-workflows (se `.github/rulesets/starter-workflows-analysis.md`).
 - `dev` är integrationsgren när ett aktivt `dev-pilot`-ruleset finns. Lägg endast required status checks på `dev` när workflows bevisligen producerar exakt de check-namnen för PR mot `dev`.
 - Organisationens CodeRabbit-UI är baslinje. Repository-lokal `.coderabbit.yaml` ska endast användas för uttryckligen repo-specifika overrides.
 
