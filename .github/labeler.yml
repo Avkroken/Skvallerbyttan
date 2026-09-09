@@ -1,0 +1,49 @@
+github-actions:
+  - changed-files:
+      - any-glob-to-any-file: .github/**
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - package.json
+          - package-lock.json
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - LICENSE
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: test/**
+
+worker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/**
+          - public/**
+          - migrations/**
+          - wrangler.jsonc
+
+'risk: high':
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/auth.ts
+          - src/env.ts
+          - src/github.ts
+          - migrations/**
+          - wrangler.jsonc
+
+'vulnerability: security-sensitive':
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/auth.ts
+          - src/env.ts
+          - src/github.ts
+
+'difficulty: complex':
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/**
+          - migrations/**

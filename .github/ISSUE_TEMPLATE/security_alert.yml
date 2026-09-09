@@ -1,0 +1,43 @@
+name: Security alert remediation
+description: Track remediation of an existing GitHub security alert
+title: "security: "
+labels: [security]
+body:
+  - type: markdown
+    attributes:
+      value: This public form is only for an already disclosed alert. Report new vulnerabilities privately through Security Advisories.
+  - type: input
+    id: alert
+    attributes:
+      label: Alert URL
+      description: Link to the Dependabot, code-scanning, or secret-scanning alert. Do not paste secret values.
+    validations:
+      required: true
+  - type: dropdown
+    id: vulnerability-severity
+    attributes:
+      label: Vulnerability severity
+      options: [Critical, High, Medium, Low, Unknown]
+    validations:
+      required: true
+  - type: dropdown
+    id: remediation-risk
+    attributes:
+      label: Remediation risk
+      options: [High, Medium, Low, Unknown]
+    validations:
+      required: true
+  - type: dropdown
+    id: fix-difficulty
+    attributes:
+      label: Difficulty to fix
+      options: [Complex, Moderate, Simple, Unknown]
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: Remediation plan
+      description: Describe the smallest safe fix and how it will be verified.
+    validations:
+      required: true
