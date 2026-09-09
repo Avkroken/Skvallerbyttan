@@ -5,9 +5,25 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+      day: monday
+      time: "05:10"
+      timezone: Europe/Stockholm
+    groups:
+      npm-patch-minor:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: /
     target-branch: dev
     schedule:
       interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Stockholm
+    groups:
+      actions-patch-minor:
+        update-types:
+          - minor
+          - patch
