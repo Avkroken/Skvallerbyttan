@@ -9,7 +9,7 @@
 ## GitHub automation
 
 - `CI` runs the repository gate on Node.js 22.
-- `CodeQL` scans the repository's `javascript-typescript` and `actions` languages.
+- GitHub CodeQL default setup scans the repository's `javascript-typescript` and `actions` languages. No advanced workflow is committed because GitHub does not allow default and advanced setup for the same language at the same time.
 - `Labeler` applies path-based scope, risk, security-sensitivity, and complexity labels to pull requests.
 - `Release` uses the existing Release Please manifest and configuration on pushes to `main`.
 - Dependabot groups weekly minor and patch updates for npm and GitHub Actions and targets `dev`.
@@ -17,12 +17,14 @@
 
 ## Check names and rulesets
 
-The workflow/job combinations define these status-check names:
+The checks observed on pull request #127 are:
 
-- `CI / CI`
-- `CodeQL / Analyze (javascript-typescript)`
-- `CodeQL / Analyze (actions)`
-- `Labeler / Label pull request`
-- `Release / Release Please`
+- `CI`
+- `Analyze (javascript-typescript)`
+- `Analyze (actions)`
+- `CodeQL`
+- `.github/dependabot.yml`
+
+The event-specific `Label pull request` check only exists after the Labeler workflow is present on the default branch, and `Release Please` only runs for pushes to `main` or manual dispatch. Neither is a pull-request merge gate.
 
 The importable repository-specific rulesets are stored in `.github/rulesets/`. They add the repository's exact required CI context to `main` and `dev`, while the integration-branch ruleset applies pull-request, review, squash-only, deletion, and force-push protections to `dev`. The inherited organization ruleset remains the broader `main` baseline and must not be weakened when these files are imported.
