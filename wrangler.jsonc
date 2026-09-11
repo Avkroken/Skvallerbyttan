@@ -5,6 +5,7 @@
   "compatibility_date": "2026-09-01",
   "workers_dev": false,
   "preview_urls": false,
+  "triggers": { "crons": [] },
   "secrets": {
     "required": [
       "SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY",
