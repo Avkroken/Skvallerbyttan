@@ -6,7 +6,7 @@
     "check": "npm test && npm run typecheck && npm run validate:worker",
     "deploy": "wrangler deploy",
     "verify:production": "node scripts/verify-production.mjs",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts test/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate:worker": "wrangler deploy --dry-run"
   },
