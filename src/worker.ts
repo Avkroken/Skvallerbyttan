@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
-import { GitHubApiError, mapLimit } from "./github";
+import { GitHubApiError } from "./github";
 import { getRepositoryInsights } from "./insights";
 import {
   captureOverviewSnapshot,
@@ -11,12 +11,15 @@ import {
   snapshotFromOverview,
 } from "./history";
 import {
+  pruneWebhookDeliveries,
   readSourceCache,
   sourceCacheAgeMs,
   sourceCacheConfigured,
+  sourceCacheInvalidated,
   type SourceCacheKind,
   writeSourceCache,
 } from "./source-cache";
+import { handleGitHubWebhook } from "./webhook";
 import {
   authConfigured,
   authenticatedUserId,
@@ -26,10 +29,8 @@ import {
   startGitHubLogin,
 } from "./auth";
 
-const OVERVIEW_CACHE_MS = 15 * 60 * 1000;
-const DEEP_CACHE_MS = 60 * 60 * 1000;
-const ACTIVE_DAY_START_HOUR = 6;
-const ACTIVE_DAY_END_HOUR = 23;
+const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const WEBHOOK_DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const REPO_NAME = /^[A-Za-z0-9_.-]+$/;
 
 function json(value: unknown, status = 200, extraHeaders?: HeadersInit): Response {
@@ -58,13 +59,20 @@ function redirectToLogin(): Response {
   });
 }
 
-function cacheHeaders(state: "hit" | "stale" | "miss", refreshedAt: string, ageMs: number, ttlMs: number): HeadersInit {
+function cacheHeaders(
+  state: "hit" | "stale" | "miss",
+  refreshedAt: string,
+  ageMs: number,
+  ttlMs: number,
+  reason?: string | null,
+): HeadersInit {
   return {
     "Cache-Control": "private, no-store",
     "X-Skvallerbyttan-Cache": state,
     "X-Skvallerbyttan-Cache-Age": String(Math.floor(ageMs / 1000)),
     "X-Skvallerbyttan-Cache-Refreshed-At": refreshedAt,
     "X-Skvallerbyttan-Cache-Ttl": String(Math.floor(ttlMs / 1000)),
+    ...(reason ? { "X-Skvallerbyttan-Cache-Invalidation": reason } : {}),
   };
 }
 
@@ -98,7 +106,8 @@ async function sourceCachedJson(
     const cached = await readSourceCache<unknown>(env, key);
     if (cached) {
       const ageMs = sourceCacheAgeMs(cached.refreshedAt);
-      const stale = ageMs > ttlMs;
+      const invalidated = sourceCacheInvalidated(cached);
+      const stale = invalidated || ageMs > ttlMs;
       if (stale) {
         context.waitUntil(refreshSourceValue(env, key, kind, loader).catch((error) => {
           console.error("source cache background refresh failed", {
@@ -110,7 +119,13 @@ async function sourceCachedJson(
       return json(
         cached.value,
         200,
-        cacheHeaders(stale ? "stale" : "hit", cached.refreshedAt, ageMs, ttlMs),
+        cacheHeaders(
+          stale ? "stale" : "hit",
+          cached.refreshedAt,
+          ageMs,
+          ttlMs,
+          invalidated ? cached.invalidationReason : null,
+        ),
       );
     }
   } catch (error) {
@@ -183,70 +198,27 @@ async function refreshOverviewCache(env: Env, context: ExecutionContext): Promis
   ) as Record<string, unknown>;
 }
 
-function overviewRepoNames(overview: Record<string, unknown>): string[] {
-  const repositories = Array.isArray(overview.repositories) ? overview.repositories : [];
-  return repositories
-    .map((repo) => repo && typeof repo === "object" && "name" in repo ? (repo as { name?: unknown }).name : null)
-    .filter((name): name is string => typeof name === "string" && REPO_NAME.test(name));
-}
-
-async function refreshDeepCache(env: Env, repoNames: string[]): Promise<void> {
-  await mapLimit(repoNames, 2, async (repo) => {
-    try {
-      await refreshSourceValue(env, `repository:${repo}`, "repository", () => getRepositoryDetail(env, repo));
-    } catch (error) {
-      console.error("scheduled repository refresh failed", {
-        repo,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    try {
-      await refreshSourceValue(env, `insights:${repo}`, "insights", () => getRepositoryInsights(env, repo));
-    } catch (error) {
-      console.error("scheduled insights refresh failed", {
-        repo,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-}
-
-function stockholmHour(date: Date): number {
-  const value = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Stockholm",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).format(date);
-  return Number(value);
-}
-
-async function scheduledRefresh(controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+async function scheduledRefresh(env: Env, context: ExecutionContext): Promise<void> {
   if (!sourceCacheConfigured(env)) {
     console.error("scheduled source refresh skipped: STATS_DB is not bound");
     return;
   }
 
-  const scheduledAt = new Date(controller.scheduledTime);
-  const minute = scheduledAt.getUTCMinutes();
-  const hour = stockholmHour(scheduledAt);
-  const activeDay = hour >= ACTIVE_DAY_START_HOUR && hour < ACTIVE_DAY_END_HOUR;
-
-  // During an active day the operational overview is refreshed every 15 minutes.
-  // Overnight it is refreshed hourly together with the deep cache.
-  if (!activeDay && minute !== 0) return;
-
-  let overview: Record<string, unknown>;
   try {
-    overview = await refreshOverviewCache(env, context);
+    await refreshOverviewCache(env, context);
   } catch (error) {
-    console.error("scheduled overview refresh failed", {
+    console.error("scheduled reconciliation refresh failed", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return;
   }
 
-  if (minute === 0) {
-    await refreshDeepCache(env, overviewRepoNames(overview));
+  try {
+    const cutoff = new Date(Date.now() - WEBHOOK_DELIVERY_RETENTION_MS).toISOString();
+    await pruneWebhookDeliveries(env, cutoff);
+  } catch (error) {
+    console.error("webhook delivery pruning failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -258,7 +230,7 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
       context,
       "overview",
       "overview",
-      OVERVIEW_CACHE_MS,
+      CACHE_MAX_AGE_MS,
       () => overviewWithHistory(env, context),
     );
   }
@@ -287,7 +259,7 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
       context,
       `insights:${repo}`,
       "insights",
-      DEEP_CACHE_MS,
+      CACHE_MAX_AGE_MS,
       () => getRepositoryInsights(env, repo),
     );
   }
@@ -301,7 +273,7 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
       context,
       `repository:${repo}`,
       "repository",
-      DEEP_CACHE_MS,
+      CACHE_MAX_AGE_MS,
       () => getRepositoryDetail(env, repo),
     );
   }
@@ -312,6 +284,17 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
 export default {
   async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/webhooks/github") {
+      try {
+        return await handleGitHubWebhook(request, env);
+      } catch (error) {
+        console.error("github webhook failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return json({ error: "webhook processing failed" }, 500, { "Cache-Control": "no-store" });
+      }
+    }
 
     if (url.pathname === "/health" || url.pathname === "/healthz") {
       return json(
@@ -399,7 +382,7 @@ export default {
     }
   },
 
-  async scheduled(controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
-    context.waitUntil(scheduledRefresh(controller, env, context));
+  async scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+    context.waitUntil(scheduledRefresh(env, context));
   },
 };
