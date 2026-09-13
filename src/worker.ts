@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
-import { GitHubApiError } from "./github";
+import { GitHubApiError, mapLimit } from "./github";
 import { getRepositoryInsights } from "./insights";
 import {
   captureOverviewSnapshot,
@@ -11,6 +11,13 @@ import {
   snapshotFromOverview,
 } from "./history";
 import {
+  readSourceCache,
+  sourceCacheAgeMs,
+  sourceCacheConfigured,
+  type SourceCacheKind,
+  writeSourceCache,
+} from "./source-cache";
+import {
   authConfigured,
   authenticatedUserId,
   handleGitHubCallback,
@@ -19,7 +26,10 @@ import {
   startGitHubLogin,
 } from "./auth";
 
-const CACHE_SECONDS = 300;
+const OVERVIEW_CACHE_MS = 15 * 60 * 1000;
+const DEEP_CACHE_MS = 60 * 60 * 1000;
+const ACTIVE_DAY_START_HOUR = 6;
+const ACTIVE_DAY_END_HOUR = 23;
 const REPO_NAME = /^[A-Za-z0-9_.-]+$/;
 
 function json(value: unknown, status = 200, extraHeaders?: HeadersInit): Response {
@@ -48,42 +58,73 @@ function redirectToLogin(): Response {
   });
 }
 
-function cacheKey(request: Request): Request {
-  const url = new URL(request.url);
-  return new Request(`${url.origin}${url.pathname}`, { method: "GET" });
+function cacheHeaders(state: "hit" | "stale" | "miss", refreshedAt: string, ageMs: number, ttlMs: number): HeadersInit {
+  return {
+    "Cache-Control": "private, no-store",
+    "X-Skvallerbyttan-Cache": state,
+    "X-Skvallerbyttan-Cache-Age": String(Math.floor(ageMs / 1000)),
+    "X-Skvallerbyttan-Cache-Refreshed-At": refreshedAt,
+    "X-Skvallerbyttan-Cache-Ttl": String(Math.floor(ttlMs / 1000)),
+  };
 }
 
-async function cachedJson(
+async function refreshSourceValue(
+  env: Env,
+  key: string,
+  kind: SourceCacheKind,
+  loader: () => Promise<unknown>,
+): Promise<unknown> {
+  const value = await loader();
+  try {
+    await writeSourceCache(env, key, kind, value);
+  } catch (error) {
+    console.error("source cache write failed", {
+      key,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return value;
+}
+
+async function sourceCachedJson(
   request: Request,
+  env: Env,
   context: ExecutionContext,
+  key: string,
+  kind: SourceCacheKind,
+  ttlMs: number,
   loader: () => Promise<unknown>,
 ): Promise<Response> {
-  const bypass = new URL(request.url).searchParams.get("refresh") === "1";
-  const key = cacheKey(request);
-  if (!bypass) {
-    const cached = await caches.default.match(key);
+  const requestedRefresh = new URL(request.url).searchParams.get("refresh") === "1";
+  try {
+    const cached = await readSourceCache<unknown>(env, key);
     if (cached) {
-      const headers = new Headers(cached.headers);
-      headers.set("Cache-Control", "private, max-age=0");
-      headers.set("X-Skvallerbyttan-Cache", "hit");
-      return new Response(cached.body, {
-        status: cached.status,
-        statusText: cached.statusText,
-        headers,
-      });
+      const ageMs = sourceCacheAgeMs(cached.refreshedAt);
+      const stale = ageMs > ttlMs;
+      if (stale || requestedRefresh) {
+        context.waitUntil(refreshSourceValue(env, key, kind, loader).catch((error) => {
+          console.error("source cache background refresh failed", {
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }));
+      }
+      return json(
+        cached.value,
+        200,
+        cacheHeaders(stale ? "stale" : "hit", cached.refreshedAt, ageMs, ttlMs),
+      );
     }
+  } catch (error) {
+    console.error("source cache read failed", {
+      key,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
-  const value = await loader();
-  const response = json(value, 200, {
-    "Cache-Control": "private, max-age=0",
-    "X-Skvallerbyttan-Cache": "miss",
-    "X-Skvallerbyttan-Cache-Ttl": String(CACHE_SECONDS),
-  });
-  const cacheable = response.clone();
-  cacheable.headers.set("Cache-Control", `public, max-age=${CACHE_SECONDS}`);
-  context.waitUntil(caches.default.put(key, cacheable));
-  return response;
+  const value = await refreshSourceValue(env, key, kind, loader);
+  const refreshedAt = new Date().toISOString();
+  return json(value, 200, cacheHeaders("miss", refreshedAt, 0, ttlMs));
 }
 
 function validRepoSegment(value: string): string | null {
@@ -135,10 +176,94 @@ async function overviewWithHistory(env: Env, context: ExecutionContext): Promise
   };
 }
 
+async function refreshOverviewCache(env: Env, context: ExecutionContext): Promise<Record<string, unknown>> {
+  return await refreshSourceValue(
+    env,
+    "overview",
+    "overview",
+    () => overviewWithHistory(env, context),
+  ) as Record<string, unknown>;
+}
+
+function overviewRepoNames(overview: Record<string, unknown>): string[] {
+  const repositories = Array.isArray(overview.repositories) ? overview.repositories : [];
+  return repositories
+    .map((repo) => repo && typeof repo === "object" && "name" in repo ? (repo as { name?: unknown }).name : null)
+    .filter((name): name is string => typeof name === "string" && REPO_NAME.test(name));
+}
+
+async function refreshDeepCache(env: Env, repoNames: string[]): Promise<void> {
+  await mapLimit(repoNames, 2, async (repo) => {
+    try {
+      await refreshSourceValue(env, `repository:${repo}`, "repository", () => getRepositoryDetail(env, repo));
+    } catch (error) {
+      console.error("scheduled repository refresh failed", {
+        repo,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    try {
+      await refreshSourceValue(env, `insights:${repo}`, "insights", () => getRepositoryInsights(env, repo));
+    } catch (error) {
+      console.error("scheduled insights refresh failed", {
+        repo,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+}
+
+function stockholmHour(date: Date): number {
+  const value = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Stockholm",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+  return Number(value);
+}
+
+async function scheduledRefresh(controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+  if (!sourceCacheConfigured(env)) {
+    console.error("scheduled source refresh skipped: STATS_DB is not bound");
+    return;
+  }
+
+  const scheduledAt = new Date(controller.scheduledTime);
+  const minute = scheduledAt.getUTCMinutes();
+  const hour = stockholmHour(scheduledAt);
+  const activeDay = hour >= ACTIVE_DAY_START_HOUR && hour < ACTIVE_DAY_END_HOUR;
+
+  // During an active day the operational overview is refreshed every 15 minutes.
+  // Overnight it is refreshed hourly together with the deep cache.
+  if (!activeDay && minute !== 0) return;
+
+  let overview: Record<string, unknown>;
+  try {
+    overview = await refreshOverviewCache(env, context);
+  } catch (error) {
+    console.error("scheduled overview refresh failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  if (minute === 0) {
+    await refreshDeepCache(env, overviewRepoNames(overview));
+  }
+}
+
 async function handleApi(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/overview") {
-    return cachedJson(request, context, () => overviewWithHistory(env, context));
+    return sourceCachedJson(
+      request,
+      env,
+      context,
+      "overview",
+      "overview",
+      OVERVIEW_CACHE_MS,
+      () => overviewWithHistory(env, context),
+    );
   }
 
   if (url.pathname === "/api/history") {
@@ -160,14 +285,30 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
   if (insightMatch) {
     const repo = validRepoSegment(insightMatch[1]);
     if (!repo) return json({ error: "invalid repository name" }, 400);
-    return cachedJson(request, context, () => getRepositoryInsights(env, repo));
+    return sourceCachedJson(
+      request,
+      env,
+      context,
+      `insights:${repo}`,
+      "insights",
+      DEEP_CACHE_MS,
+      () => getRepositoryInsights(env, repo),
+    );
   }
 
   const match = url.pathname.match(/^\/api\/repos\/([^/]+)$/);
   if (match) {
     const repo = validRepoSegment(match[1]);
     if (!repo) return json({ error: "invalid repository name" }, 400);
-    return cachedJson(request, context, () => getRepositoryDetail(env, repo));
+    return sourceCachedJson(
+      request,
+      env,
+      context,
+      `repository:${repo}`,
+      "repository",
+      DEEP_CACHE_MS,
+      () => getRepositoryDetail(env, repo),
+    );
   }
 
   return json({ error: "not found" }, 404);
@@ -261,5 +402,9 @@ export default {
       });
       return json({ error: "upstream data fetch failed" }, 502, { "Cache-Control": "no-store" });
     }
+  },
+
+  async scheduled(controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+    context.waitUntil(scheduledRefresh(controller, env, context));
   },
 };
