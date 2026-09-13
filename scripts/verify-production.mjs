@@ -26,15 +26,19 @@ export async function validateProductionResponse(response) {
   }
 }
 
-export function validateAccessResponse(response) {
-  const location = response.headers.get("location");
-  let url;
-  try { url = new URL(location); } catch { throw new Error("Missing or invalid Access redirect"); }
-  if (response.status !== 302 ||
-      url.origin !== "https://mp100.cloudflareaccess.com" ||
-      url.pathname !== "/cdn-cgi/access/login/skvallerbyttan.denied.se" ||
-      url.username || url.password) {
-    throw new Error("Protected readiness endpoint did not require expected Access login");
+export async function validateReadinessResponse(response) {
+  if (response.status !== 200) {
+    throw new Error(`${READY_URL} returned ${response.status}, expected 200`);
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    throw new Error(`${READY_URL} returned unexpected content-type ${contentType || "<missing>"}`);
+  }
+
+  const body = await response.json();
+  if (body?.ok !== true) {
+    throw new Error(`${READY_URL} reported not ready`);
   }
 }
 
@@ -50,12 +54,14 @@ export async function checkProduction({
         headers: { "user-agent": "skvallerbyttan-workers-build-readiness-check" },
       });
       await validateProductionResponse(response);
-      const protectedResponse = await fetchImpl(READY_URL, {
+
+      const readinessResponse = await fetchImpl(READY_URL, {
         redirect: "manual",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      validateAccessResponse(protectedResponse);
-      console.log(`skvallerbyttan: health and Access checks passed on attempt ${attempt}`);
+      await validateReadinessResponse(readinessResponse);
+
+      console.log(`skvallerbyttan: health and readiness checks passed on attempt ${attempt}`);
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -64,7 +70,7 @@ export async function checkProduction({
     }
   }
 
-  throw new Error(`skvallerbyttan: health and Access checks failed after ${ATTEMPTS} attempts`);
+  throw new Error(`skvallerbyttan: health and readiness checks failed after ${ATTEMPTS} attempts`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
