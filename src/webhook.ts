@@ -1,11 +1,16 @@
 import type { Env } from "./env";
 import { organization } from "./env";
-import { invalidateSourceCache, recordWebhookDelivery } from "./source-cache";
+import {
+  invalidateSourceCache,
+  recordWebhookDelivery,
+  sourceCacheConfigured,
+} from "./source-cache";
 
 const encoder = new TextEncoder();
 const SIGNATURE_PREFIX = "sha256=";
 
 const INVALIDATING_EVENTS = new Set([
+  "branch_protection_rule",
   "check_run",
   "check_suite",
   "code_scanning_alert",
@@ -14,13 +19,19 @@ const INVALIDATING_EVENTS = new Set([
   "dependabot_alert",
   "deployment",
   "deployment_status",
+  "fork",
+  "issues",
   "pull_request",
   "pull_request_review",
+  "pull_request_review_comment",
   "push",
   "release",
   "repository",
   "repository_ruleset",
   "secret_scanning_alert",
+  "secret_scanning_alert_location",
+  "star",
+  "status",
   "workflow_job",
   "workflow_run",
 ]);
@@ -76,72 +87,55 @@ function ownerFromPayload(payload: WebhookPayload): string | null {
   return payload.organization?.login?.trim() || payload.repository?.owner?.login?.trim() || null;
 }
 
+function response(value: unknown, status: number): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 export async function handleGitHubWebhook(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") {
-    return new Response(JSON.stringify({ error: "method not allowed" }), {
-      status: 405,
-      headers: { "content-type": "application/json; charset=utf-8", Allow: "POST" },
-    });
+    const result = response({ error: "method not allowed" }, 405);
+    result.headers.set("Allow", "POST");
+    return result;
   }
 
   const secret = env.SKVALLERBYTTAN_WEBHOOK_SECRET?.trim();
-  if (!secret) {
-    return new Response(JSON.stringify({ error: "webhook not configured" }), {
-      status: 503,
-      headers: { "content-type": "application/json; charset=utf-8" },
-    });
-  }
+  if (!secret || !sourceCacheConfigured(env)) return response({ error: "webhook not configured" }, 503);
 
   const body = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
   if (!(await verifyWebhookSignature(body, signature, secret))) {
-    return new Response(JSON.stringify({ error: "invalid webhook signature" }), {
-      status: 401,
-      headers: { "content-type": "application/json; charset=utf-8" },
-    });
+    return response({ error: "invalid webhook signature" }, 401);
   }
 
   const event = request.headers.get("x-github-event")?.trim() || "";
   const deliveryId = request.headers.get("x-github-delivery")?.trim() || "";
-  if (!event || !deliveryId) {
-    return new Response(JSON.stringify({ error: "missing webhook headers" }), {
-      status: 400,
-      headers: { "content-type": "application/json; charset=utf-8" },
-    });
-  }
+  if (!event || !deliveryId) return response({ error: "missing webhook headers" }, 400);
 
   let payload: WebhookPayload;
   try {
     payload = JSON.parse(body) as WebhookPayload;
   } catch {
-    return new Response(JSON.stringify({ error: "invalid webhook payload" }), {
-      status: 400,
-      headers: { "content-type": "application/json; charset=utf-8" },
-    });
+    return response({ error: "invalid webhook payload" }, 400);
   }
 
   const repo = repoFromPayload(payload);
   const owner = ownerFromPayload(payload);
   if (owner && owner.toLowerCase() !== organization(env).toLowerCase()) {
-    return new Response(JSON.stringify({ ok: true, ignored: "different organization" }), {
-      status: 202,
-      headers: { "content-type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-    });
+    return response({ ok: true, ignored: "different organization" }, 202);
   }
 
   const isNew = await recordWebhookDelivery(env, deliveryId, event, repo);
-  if (!isNew) {
-    return new Response(JSON.stringify({ ok: true, duplicate: true }), {
-      status: 202,
-      headers: { "content-type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-    });
-  }
+  if (!isNew) return response({ ok: true, duplicate: true }, 202);
 
   const keys = webhookCacheKeys(event, repo);
   if (keys.length > 0) await invalidateSourceCache(env, keys, `github:${event}`);
 
-  return new Response(JSON.stringify({ ok: true, event, repo, invalidated: keys.length }), {
-    status: 202,
-    headers: { "content-type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-  });
+  return response({ ok: true, event, repo, invalidated: keys.length }, 202);
 }
