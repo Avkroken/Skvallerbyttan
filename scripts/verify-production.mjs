@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 
-const HEALTH_URL = "https://skvallerbyttan.denied.se/healthz";
+const HEALTH_URL = "https://skvallerbyttan.denied.se/health";
 const READY_URL = "https://skvallerbyttan.denied.se/ready";
 const ATTEMPTS = 5;
 const RETRY_DELAY_MS = 10_000;

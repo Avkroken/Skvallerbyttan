@@ -20,7 +20,7 @@ test("checks public health and protected readiness without following redirects",
   await checkProduction({fetchImpl: async (url, options) => {
     calls.push(url);
     assert.equal(options.redirect, "manual");
-    return url.endsWith("/healthz") ? health() : redirect();
+    return url.endsWith("/health") ? health() : redirect();
   }});
-  assert.deepEqual(calls, ["https://skvallerbyttan.denied.se/healthz", "https://skvallerbyttan.denied.se/ready"]);
+  assert.deepEqual(calls, ["https://skvallerbyttan.denied.se/health", "https://skvallerbyttan.denied.se/ready"]);
 });
