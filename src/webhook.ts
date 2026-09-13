@@ -50,13 +50,6 @@ function bytesFromHex(value: string): Uint8Array | null {
   return bytes;
 }
 
-function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let mismatch = 0;
-  for (let index = 0; index < left.length; index += 1) mismatch |= left[index] ^ right[index];
-  return mismatch === 0;
-}
-
 export async function verifyWebhookSignature(body: string, signature: string | null, secret: string): Promise<boolean> {
   if (!signature?.startsWith(SIGNATURE_PREFIX) || !secret) return false;
   const provided = bytesFromHex(signature.slice(SIGNATURE_PREFIX.length));
@@ -66,10 +59,9 @@ export async function verifyWebhookSignature(body: string, signature: string | n
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"],
+    ["verify"],
   );
-  const expected = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(body)));
-  return constantTimeEqual(expected, provided);
+  return crypto.subtle.verify("HMAC", key, provided, encoder.encode(body));
 }
 
 export function webhookCacheKeys(event: string, repo: string | null): string[] {
