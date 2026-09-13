@@ -178,20 +178,12 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/healthz") {
-      return json({ ok: true, service: "skvallerbyttan", purpose: "github-dashboard" });
+      return json({ ok: true });
     }
 
     if (url.pathname === "/ready") {
-      return json(
-        {
-          ok: configured(env),
-          service: "skvallerbyttan",
-          purpose: "github-dashboard",
-          check: "configuration",
-          statisticsHistory: historyConfigured(env),
-        },
-        configured(env) ? 200 : 503,
-      );
+      const ok = configured(env);
+      return json({ ok }, ok ? 200 : 503, { "Cache-Control": "no-store" });
     }
 
     if (url.pathname === "/login") {
@@ -216,17 +208,7 @@ export default {
     if (!configured(env)) {
       if (url.pathname.startsWith("/api/")) {
         return json(
-          {
-            error: "dashboard is not fully configured",
-            required: [
-              "SKVALLERBYTTAN_GAMNACKE_CLIENT_ID",
-              "SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY",
-              "SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID",
-              "SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET",
-              "SKVALLERBYTTAN_SESSION_SECRET",
-              "SKVALLERBYTTAN_ALLOWED_GITHUB_IDS",
-            ],
-          },
+          { error: "service unavailable" },
           503,
           { "Cache-Control": "no-store" },
         );
