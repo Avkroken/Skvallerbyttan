@@ -87,7 +87,6 @@ async function refreshSourceValue(
 }
 
 async function sourceCachedJson(
-  request: Request,
   env: Env,
   context: ExecutionContext,
   key: string,
@@ -95,13 +94,12 @@ async function sourceCachedJson(
   ttlMs: number,
   loader: () => Promise<unknown>,
 ): Promise<Response> {
-  const requestedRefresh = new URL(request.url).searchParams.get("refresh") === "1";
   try {
     const cached = await readSourceCache<unknown>(env, key);
     if (cached) {
       const ageMs = sourceCacheAgeMs(cached.refreshedAt);
       const stale = ageMs > ttlMs;
-      if (stale || requestedRefresh) {
+      if (stale) {
         context.waitUntil(refreshSourceValue(env, key, kind, loader).catch((error) => {
           console.error("source cache background refresh failed", {
             key,
@@ -256,7 +254,6 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
   const url = new URL(request.url);
   if (url.pathname === "/api/overview") {
     return sourceCachedJson(
-      request,
       env,
       context,
       "overview",
@@ -286,7 +283,6 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
     const repo = validRepoSegment(insightMatch[1]);
     if (!repo) return json({ error: "invalid repository name" }, 400);
     return sourceCachedJson(
-      request,
       env,
       context,
       `insights:${repo}`,
@@ -301,7 +297,6 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
     const repo = validRepoSegment(match[1]);
     if (!repo) return json({ error: "invalid repository name" }, 400);
     return sourceCachedJson(
-      request,
       env,
       context,
       `repository:${repo}`,
