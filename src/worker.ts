@@ -11,6 +11,16 @@ import {
   snapshotFromOverview,
 } from "./history";
 import {
+  pruneWebhookDeliveries,
+  readSourceCache,
+  sourceCacheAgeMs,
+  sourceCacheConfigured,
+  sourceCacheInvalidated,
+  type SourceCacheKind,
+  writeSourceCache,
+} from "./source-cache";
+import { handleGitHubWebhook } from "./webhook";
+import {
   authConfigured,
   authenticatedUserId,
   handleGitHubCallback,
@@ -19,7 +29,8 @@ import {
   startGitHubLogin,
 } from "./auth";
 
-const CACHE_SECONDS = 300;
+const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const WEBHOOK_DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const REPO_NAME = /^[A-Za-z0-9_.-]+$/;
 
 function json(value: unknown, status = 200, extraHeaders?: HeadersInit): Response {
@@ -48,42 +59,85 @@ function redirectToLogin(): Response {
   });
 }
 
-function cacheKey(request: Request): Request {
-  const url = new URL(request.url);
-  return new Request(`${url.origin}${url.pathname}`, { method: "GET" });
+function cacheHeaders(
+  state: "hit" | "stale" | "miss",
+  refreshedAt: string,
+  ageMs: number,
+  ttlMs: number,
+  reason?: string | null,
+): HeadersInit {
+  return {
+    "Cache-Control": "private, no-store",
+    "X-Skvallerbyttan-Cache": state,
+    "X-Skvallerbyttan-Cache-Age": String(Math.floor(ageMs / 1000)),
+    "X-Skvallerbyttan-Cache-Refreshed-At": refreshedAt,
+    "X-Skvallerbyttan-Cache-Ttl": String(Math.floor(ttlMs / 1000)),
+    ...(reason ? { "X-Skvallerbyttan-Cache-Invalidation": reason } : {}),
+  };
 }
 
-async function cachedJson(
-  request: Request,
+async function refreshSourceValue(
+  env: Env,
+  key: string,
+  kind: SourceCacheKind,
+  loader: () => Promise<unknown>,
+): Promise<unknown> {
+  const value = await loader();
+  try {
+    await writeSourceCache(env, key, kind, value);
+  } catch (error) {
+    console.error("source cache write failed", {
+      key,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return value;
+}
+
+async function sourceCachedJson(
+  env: Env,
   context: ExecutionContext,
+  key: string,
+  kind: SourceCacheKind,
+  ttlMs: number,
   loader: () => Promise<unknown>,
 ): Promise<Response> {
-  const bypass = new URL(request.url).searchParams.get("refresh") === "1";
-  const key = cacheKey(request);
-  if (!bypass) {
-    const cached = await caches.default.match(key);
+  try {
+    const cached = await readSourceCache<unknown>(env, key);
     if (cached) {
-      const headers = new Headers(cached.headers);
-      headers.set("Cache-Control", "private, max-age=0");
-      headers.set("X-Skvallerbyttan-Cache", "hit");
-      return new Response(cached.body, {
-        status: cached.status,
-        statusText: cached.statusText,
-        headers,
-      });
+      const ageMs = sourceCacheAgeMs(cached.refreshedAt);
+      const invalidated = sourceCacheInvalidated(cached);
+      const stale = invalidated || ageMs > ttlMs;
+      if (stale) {
+        context.waitUntil(refreshSourceValue(env, key, kind, loader).catch((error) => {
+          console.error("source cache background refresh failed", {
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }));
+      }
+      return json(
+        cached.value,
+        200,
+        cacheHeaders(
+          stale ? "stale" : "hit",
+          cached.refreshedAt,
+          ageMs,
+          ttlMs,
+          invalidated ? cached.invalidationReason : null,
+        ),
+      );
     }
+  } catch (error) {
+    console.error("source cache read failed", {
+      key,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
-  const value = await loader();
-  const response = json(value, 200, {
-    "Cache-Control": "private, max-age=0",
-    "X-Skvallerbyttan-Cache": "miss",
-    "X-Skvallerbyttan-Cache-Ttl": String(CACHE_SECONDS),
-  });
-  const cacheable = response.clone();
-  cacheable.headers.set("Cache-Control", `public, max-age=${CACHE_SECONDS}`);
-  context.waitUntil(caches.default.put(key, cacheable));
-  return response;
+  const value = await refreshSourceValue(env, key, kind, loader);
+  const refreshedAt = new Date().toISOString();
+  return json(value, 200, cacheHeaders("miss", refreshedAt, 0, ttlMs));
 }
 
 function validRepoSegment(value: string): string | null {
@@ -135,10 +189,50 @@ async function overviewWithHistory(env: Env, context: ExecutionContext): Promise
   };
 }
 
+async function refreshOverviewCache(env: Env, context: ExecutionContext): Promise<Record<string, unknown>> {
+  return await refreshSourceValue(
+    env,
+    "overview",
+    "overview",
+    () => overviewWithHistory(env, context),
+  ) as Record<string, unknown>;
+}
+
+async function scheduledRefresh(env: Env, context: ExecutionContext): Promise<void> {
+  if (!sourceCacheConfigured(env)) {
+    console.error("scheduled source refresh skipped: STATS_DB is not bound");
+    return;
+  }
+
+  try {
+    await refreshOverviewCache(env, context);
+  } catch (error) {
+    console.error("scheduled reconciliation refresh failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  try {
+    const cutoff = new Date(Date.now() - WEBHOOK_DELIVERY_RETENTION_MS).toISOString();
+    await pruneWebhookDeliveries(env, cutoff);
+  } catch (error) {
+    console.error("webhook delivery pruning failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function handleApi(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/overview") {
-    return cachedJson(request, context, () => overviewWithHistory(env, context));
+    return sourceCachedJson(
+      env,
+      context,
+      "overview",
+      "overview",
+      CACHE_MAX_AGE_MS,
+      () => overviewWithHistory(env, context),
+    );
   }
 
   if (url.pathname === "/api/history") {
@@ -160,14 +254,28 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
   if (insightMatch) {
     const repo = validRepoSegment(insightMatch[1]);
     if (!repo) return json({ error: "invalid repository name" }, 400);
-    return cachedJson(request, context, () => getRepositoryInsights(env, repo));
+    return sourceCachedJson(
+      env,
+      context,
+      `insights:${repo}`,
+      "insights",
+      CACHE_MAX_AGE_MS,
+      () => getRepositoryInsights(env, repo),
+    );
   }
 
   const match = url.pathname.match(/^\/api\/repos\/([^/]+)$/);
   if (match) {
     const repo = validRepoSegment(match[1]);
     if (!repo) return json({ error: "invalid repository name" }, 400);
-    return cachedJson(request, context, () => getRepositoryDetail(env, repo));
+    return sourceCachedJson(
+      env,
+      context,
+      `repository:${repo}`,
+      "repository",
+      CACHE_MAX_AGE_MS,
+      () => getRepositoryDetail(env, repo),
+    );
   }
 
   return json({ error: "not found" }, 404);
@@ -176,6 +284,17 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
 export default {
   async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/webhooks/github") {
+      try {
+        return await handleGitHubWebhook(request, env);
+      } catch (error) {
+        console.error("github webhook failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return json({ error: "webhook processing failed" }, 500, { "Cache-Control": "no-store" });
+      }
+    }
 
     if (url.pathname === "/health" || url.pathname === "/healthz") {
       return json(
@@ -261,5 +380,9 @@ export default {
       });
       return json({ error: "upstream data fetch failed" }, 502, { "Cache-Control": "no-store" });
     }
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+    context.waitUntil(scheduledRefresh(env, context));
   },
 };
