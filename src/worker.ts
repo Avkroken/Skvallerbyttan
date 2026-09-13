@@ -177,8 +177,12 @@ export default {
   async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/healthz") {
-      return json({ ok: true });
+    if (url.pathname === "/health" || url.pathname === "/healthz") {
+      return json(
+        { ok: true, service: "skvallerbyttan", purpose: "github-dashboard" },
+        200,
+        { "Cache-Control": "no-store" },
+      );
     }
 
     if (url.pathname === "/ready") {
