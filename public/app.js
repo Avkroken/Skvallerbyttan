@@ -74,6 +74,22 @@ function card(label, value, hint = "") {
   return `<article class="card"><p class="label">${esc(label)}</p><span class="value">${esc(value)}</span><span class="hint">${esc(hint)}</span></article>`;
 }
 
+function domCard(label, value, hint = "") {
+  const article = document.createElement("article");
+  article.className = "card";
+  const labelNode = document.createElement("p");
+  labelNode.className = "label";
+  labelNode.textContent = label;
+  const valueNode = document.createElement("span");
+  valueNode.className = "value";
+  valueNode.textContent = value;
+  const hintNode = document.createElement("span");
+  hintNode.className = "hint";
+  hintNode.textContent = hint;
+  article.append(labelNode, valueNode, hintNode);
+  return article;
+}
+
 function securityCoverage(activity) {
   if (!activity?.available) return "Webhookhistorik ej tillgänglig";
   if (!activity.firstRecordedAt) return `${fmtInt(activity.days ?? 30)} dagar · väntar på första event`;
@@ -107,24 +123,32 @@ function renderCards(data) {
   const high = (data.security?.codeScanning?.severities?.high ?? 0) + (data.security?.dependabot?.severities?.high ?? 0);
   const secret = data.security?.secretScanning?.count ?? 0;
   const staleHint = data.totals.stalePullRequestsSampled ? "Stale = 14 dagar · sample" : "Stale = 14 dagar";
-  const activity = data.securityActivity;
-  const securityCards = activity?.available ? [
-    card("Nya / åtgärdade", `${fmtInt(activity.discovered)} / ${fmtInt(activity.remediated)}`, securityCoverage(activity)),
-    card(
-      "Dependabot fix / dismiss",
-      `${fmtInt(activity.dependabot?.remediated)} / ${fmtInt(activity.dependabot?.dismissed)}`,
-      `Patchandel av avslutade: ${fmtPct(activity.dependabot?.patchRateClosed)}`,
-    ),
-  ] : [];
-  $("#cards").innerHTML = [
+  const cards = $("#cards");
+  cards.innerHTML = [
     card("Öppna secrets", fmtInt(secret), "Secret scanning"),
     card("Critical / high", `${fmtInt(critical)} / ${fmtInt(high)}`, "CodeQL + Dependabot"),
-    ...securityCards,
     card("CI pass rate", fmtPct(data.totals.actionSamplePassRate), "Senaste 100 runs per repo"),
     card("Misslyckade runs", fmtInt(data.totals.failedRunsLast7dSample), "7 dagar, inom samples"),
     card("Öppna / stale PR", `${fmtInt(data.totals.openPullRequests)} / ${fmtInt(data.totals.stalePullRequests)}`, staleHint),
     card("Repos / Actions", `${fmtInt(data.repositoryCount)} / ${fmtInt(data.totals.actionRuns)}`, "Installerad GitHub App"),
   ].join("");
+
+  const activity = data.securityActivity;
+  if (activity?.available) {
+    const anchor = cards.children[2] || null;
+    const discovered = domCard(
+      "Nya / åtgärdade",
+      `${fmtInt(activity.discovered)} / ${fmtInt(activity.remediated)}`,
+      securityCoverage(activity),
+    );
+    const dependabot = domCard(
+      "Dependabot fix / dismiss",
+      `${fmtInt(activity.dependabot?.remediated)} / ${fmtInt(activity.dependabot?.dismissed)}`,
+      `Patchandel av avslutade: ${fmtPct(activity.dependabot?.patchRateClosed)}`,
+    );
+    cards.insertBefore(dependabot, anchor);
+    cards.insertBefore(discovered, dependabot);
+  }
 }
 
 function renderSinceLast(data) {
@@ -207,20 +231,16 @@ function kv(rows) {
   return `<div class="kv">${rows.map(([key, value]) => `<div>${esc(key)}</div><div>${value}</div>`).join("")}</div>`;
 }
 
-function renderSecurityActivity(activity) {
-  if (!activity?.available) {
-    return '<p class="small">Webhookhistorik är inte tillgänglig ännu.</p>';
-  }
-  return `
-    ${kv([
-      ["Nya / åtgärdade", `${fmtInt(activity.discovered)} / ${fmtInt(activity.remediated)}`],
-      ["Dismissade", fmtInt(activity.dismissed)],
-      ["Återöppnade", fmtInt(activity.reopened)],
-      ["Dependabot fix / dismiss", `${fmtInt(activity.dependabot?.remediated)} / ${fmtInt(activity.dependabot?.dismissed)}`],
-      ["Dependabot patchandel", fmtPct(activity.dependabot?.patchRateClosed)],
-      ["Täckning", esc(securityCoverage(activity))],
-    ])}
-    <ul id="security-event-list" class="list"></ul>`;
+function renderSecurityActivityShell() {
+  return '<div id="security-activity-summary" class="kv"></div><ul id="security-event-list" class="list"></ul>';
+}
+
+function appendSummaryRow(summary, key, value) {
+  const keyNode = document.createElement("div");
+  keyNode.textContent = key;
+  const valueNode = document.createElement("div");
+  valueNode.textContent = value;
+  summary.append(keyNode, valueNode);
 }
 
 function populateSecurityEventList(activity) {
@@ -259,6 +279,29 @@ function populateSecurityEventList(activity) {
     item.append(date);
     list.append(item);
   }
+}
+
+function populateSecurityActivity(activity) {
+  const summary = $("#security-activity-summary");
+  const list = $("#security-event-list");
+  if (!summary || !list) return;
+  summary.replaceChildren();
+  if (!activity?.available) {
+    const message = document.createElement("div");
+    message.className = "small";
+    message.textContent = "Webhookhistorik är inte tillgänglig ännu.";
+    summary.append(message);
+    list.replaceChildren();
+    return;
+  }
+
+  appendSummaryRow(summary, "Nya / åtgärdade", `${fmtInt(activity.discovered)} / ${fmtInt(activity.remediated)}`);
+  appendSummaryRow(summary, "Dismissade", fmtInt(activity.dismissed));
+  appendSummaryRow(summary, "Återöppnade", fmtInt(activity.reopened));
+  appendSummaryRow(summary, "Dependabot fix / dismiss", `${fmtInt(activity.dependabot?.remediated)} / ${fmtInt(activity.dependabot?.dismissed)}`);
+  appendSummaryRow(summary, "Dependabot patchandel", fmtPct(activity.dependabot?.patchRateClosed));
+  appendSummaryRow(summary, "Täckning", securityCoverage(activity));
+  populateSecurityEventList(activity);
 }
 
 function renderRepoDetail(data) {
@@ -312,7 +355,7 @@ function renderRepoDetail(data) {
 
       <article class="panel wide">
         <h3>Säkerhetshändelser · 30 dagar</h3>
-        ${renderSecurityActivity(securityActivity)}
+        ${renderSecurityActivityShell()}
       </article>
 
       <article class="panel">
@@ -410,7 +453,7 @@ function renderRepoDetail(data) {
       </article>
     </div>`;
   renderCapabilities({ capabilities: [...(data.capabilities || []), ...(insights.capabilities || [])] }, "#repo-capabilities");
-  populateSecurityEventList(securityActivity);
+  populateSecurityActivity(securityActivity);
 }
 
 async function loadRepo(name) {
