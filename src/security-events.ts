@@ -137,11 +137,15 @@ export function securityEventFromWebhook(
     resolution = normalized(alert.resolution);
   }
 
+  const alertNumber = alert.number == null || !Number.isFinite(Number(alert.number))
+    ? null
+    : Number(alert.number);
+
   return {
     deliveryId,
     event,
     repo,
-    alertNumber: Number.isFinite(Number(alert.number)) ? Number(alert.number) : null,
+    alertNumber,
     action,
     severity,
     subject,
