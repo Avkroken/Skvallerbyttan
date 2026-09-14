@@ -300,10 +300,12 @@ export async function getSecurityActivity(
       })),
     };
   } catch (error) {
+    console.error("security activity query failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       available: false,
       reason: "security-events-unavailable",
-      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
