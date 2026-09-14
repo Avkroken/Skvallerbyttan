@@ -74,14 +74,52 @@ function card(label, value, hint = "") {
   return `<article class="card"><p class="label">${esc(label)}</p><span class="value">${esc(value)}</span><span class="hint">${esc(hint)}</span></article>`;
 }
 
+function securityCoverage(activity) {
+  if (!activity?.available) return "Webhookhistorik ej tillgänglig";
+  if (!activity.firstRecordedAt) return `${fmtInt(activity.days ?? 30)} dagar · väntar på första event`;
+  return `${fmtInt(activity.days ?? 30)} dagar · data sedan ${fmtDate(activity.firstRecordedAt)}`;
+}
+
+function securityEventName(event) {
+  if (event === "dependabot_alert") return "Dependabot";
+  if (event === "code_scanning_alert") return "Code scanning";
+  if (event === "secret_scanning_alert") return "Secret scanning";
+  return event || "Security";
+}
+
+function securityActionLabel(action) {
+  const labels = {
+    created: "upptäckt",
+    fixed: "fixad",
+    resolved: "löst",
+    dismissed: "avfärdad",
+    auto_dismissed: "auto-avfärdad",
+    reopened: "återöppnad",
+    auto_reopened: "auto-återöppnad",
+    reintroduced: "återintroducerad",
+    closed_by_user: "stängd manuellt",
+  };
+  return labels[action] || action || "uppdaterad";
+}
+
 function renderCards(data) {
   const critical = (data.security?.codeScanning?.severities?.critical ?? 0) + (data.security?.dependabot?.severities?.critical ?? 0);
   const high = (data.security?.codeScanning?.severities?.high ?? 0) + (data.security?.dependabot?.severities?.high ?? 0);
   const secret = data.security?.secretScanning?.count ?? 0;
   const staleHint = data.totals.stalePullRequestsSampled ? "Stale = 14 dagar · sample" : "Stale = 14 dagar";
+  const activity = data.securityActivity;
+  const securityCards = activity?.available ? [
+    card("Nya / åtgärdade", `${fmtInt(activity.discovered)} / ${fmtInt(activity.remediated)}`, securityCoverage(activity)),
+    card(
+      "Dependabot fix / dismiss",
+      `${fmtInt(activity.dependabot?.remediated)} / ${fmtInt(activity.dependabot?.dismissed)}`,
+      `Patchandel av avslutade: ${fmtPct(activity.dependabot?.patchRateClosed)}`,
+    ),
+  ] : [];
   $("#cards").innerHTML = [
     card("Öppna secrets", fmtInt(secret), "Secret scanning"),
     card("Critical / high", `${fmtInt(critical)} / ${fmtInt(high)}`, "CodeQL + Dependabot"),
+    ...securityCards,
     card("CI pass rate", fmtPct(data.totals.actionSamplePassRate), "Senaste 100 runs per repo"),
     card("Misslyckade runs", fmtInt(data.totals.failedRunsLast7dSample), "7 dagar, inom samples"),
     card("Öppna / stale PR", `${fmtInt(data.totals.openPullRequests)} / ${fmtInt(data.totals.stalePullRequests)}`, staleHint),
@@ -169,6 +207,28 @@ function kv(rows) {
   return `<div class="kv">${rows.map(([key, value]) => `<div>${esc(key)}</div><div>${value}</div>`).join("")}</div>`;
 }
 
+function renderSecurityActivity(activity) {
+  if (!activity?.available) {
+    return '<p class="small">Webhookhistorik är inte tillgänglig ännu.</p>';
+  }
+  const recent = activity.recent || [];
+  return `
+    ${kv([
+      ["Nya / åtgärdade", `${fmtInt(activity.discovered)} / ${fmtInt(activity.remediated)}`],
+      ["Dismissade", fmtInt(activity.dismissed)],
+      ["Återöppnade", fmtInt(activity.reopened)],
+      ["Dependabot fix / dismiss", `${fmtInt(activity.dependabot?.remediated)} / ${fmtInt(activity.dependabot?.dismissed)}`],
+      ["Dependabot patchandel", fmtPct(activity.dependabot?.patchRateClosed)],
+      ["Täckning", esc(securityCoverage(activity))],
+    ])}
+    <ul class="list">${recent.map((event) => {
+      const subject = event.subject ? ` · ${esc(event.subject)}` : "";
+      const severity = event.severity ? ` · ${badge(event.severity, event.severity === "critical" || event.severity === "high" ? "bad" : "neutral")}` : "";
+      const resolution = event.resolution ? ` · ${esc(event.resolution)}` : "";
+      return `<li><strong>${esc(securityEventName(event.event))}</strong> · ${esc(securityActionLabel(event.action))}${subject}${severity}${resolution}<br><span class="small">${esc(fmtDate(event.receivedAt))}</span></li>`;
+    }).join("") || '<li class="small">Inga säkerhetshändelser registrerade i perioden.</li>'}</ul>`;
+}
+
 function renderRepoDetail(data) {
   const repo = data.repository;
   const insights = data.insights || {};
@@ -176,6 +236,7 @@ function renderRepoDetail(data) {
   const pullCycle = insights.pullRequests?.cycle || null;
   const delivery = insights.deployments || null;
   const activityTrend = insights.activity || null;
+  const securityActivity = data.securityActivity || null;
   $("#repo-title").textContent = repo.fullName;
   const code = data.security.codeScanning;
   const dep = data.security.dependabot;
@@ -207,7 +268,7 @@ function renderRepoDetail(data) {
       </article>
 
       <article class="panel">
-        <h3>Säkerhet</h3>
+        <h3>Säkerhet · öppna nu</h3>
         ${kv([
           ["Code scanning", code ? fmtInt(code.count) : "—"],
           ["Dependabot", dep ? fmtInt(dep.count) : "—"],
@@ -215,6 +276,11 @@ function renderRepoDetail(data) {
           ["Critical", fmtInt((code?.severities?.critical ?? 0) + (dep?.severities?.critical ?? 0))],
           ["High", fmtInt((code?.severities?.high ?? 0) + (dep?.severities?.high ?? 0))],
         ])}
+      </article>
+
+      <article class="panel wide">
+        <h3>Säkerhetshändelser · 30 dagar</h3>
+        ${renderSecurityActivity(securityActivity)}
       </article>
 
       <article class="panel">
@@ -328,6 +394,7 @@ async function loadRepo(name) {
     const data = await api(`/api/repos/${encoded}`);
     if (state.repoRequestId !== requestId) return;
     data.insights = null;
+    data.securityActivity = null;
     renderRepoDetail(data);
     history.replaceState(null, "", `#repo=${encoded}`);
 
@@ -336,6 +403,15 @@ async function loadRepo(name) {
         if (state.repoRequestId !== requestId) return;
         if (location.hash !== `#repo=${encoded}`) return;
         data.insights = insights;
+        renderRepoDetail(data);
+      })
+      .catch(() => {});
+
+    api(`/api/security-activity?repo=${encoded}&days=30`)
+      .then((securityActivity) => {
+        if (state.repoRequestId !== requestId) return;
+        if (location.hash !== `#repo=${encoded}`) return;
+        data.securityActivity = securityActivity;
         renderRepoDetail(data);
       })
       .catch(() => {});
@@ -348,7 +424,11 @@ async function loadRepo(name) {
 async function loadOverview(refresh = false) {
   $("#alert").classList.add("hidden");
   try {
-    const data = await api(`/api/overview${refresh ? "?refresh=1" : ""}`);
+    const [data, securityActivity] = await Promise.all([
+      api(`/api/overview${refresh ? "?refresh=1" : ""}`),
+      api("/api/security-activity?days=30").catch(() => ({ available: false })),
+    ]);
+    data.securityActivity = securityActivity;
     state.overview = data;
     renderCards(data);
     renderSinceLast(data);
