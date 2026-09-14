@@ -211,7 +211,6 @@ function renderSecurityActivity(activity) {
   if (!activity?.available) {
     return '<p class="small">Webhookhistorik är inte tillgänglig ännu.</p>';
   }
-  const recent = activity.recent || [];
   return `
     ${kv([
       ["Nya / åtgärdade", `${fmtInt(activity.discovered)} / ${fmtInt(activity.remediated)}`],
@@ -221,12 +220,45 @@ function renderSecurityActivity(activity) {
       ["Dependabot patchandel", fmtPct(activity.dependabot?.patchRateClosed)],
       ["Täckning", esc(securityCoverage(activity))],
     ])}
-    <ul class="list">${recent.map((event) => {
-      const subject = event.subject ? ` · ${esc(event.subject)}` : "";
-      const severity = event.severity ? ` · ${badge(event.severity, event.severity === "critical" || event.severity === "high" ? "bad" : "neutral")}` : "";
-      const resolution = event.resolution ? ` · ${esc(event.resolution)}` : "";
-      return `<li><strong>${esc(securityEventName(event.event))}</strong> · ${esc(securityActionLabel(event.action))}${subject}${severity}${resolution}<br><span class="small">${esc(fmtDate(event.receivedAt))}</span></li>`;
-    }).join("") || '<li class="small">Inga säkerhetshändelser registrerade i perioden.</li>'}</ul>`;
+    <ul id="security-event-list" class="list"></ul>`;
+}
+
+function populateSecurityEventList(activity) {
+  const list = $("#security-event-list");
+  if (!list) return;
+  list.replaceChildren();
+  const recent = activity?.recent || [];
+  if (recent.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "small";
+    empty.textContent = "Inga säkerhetshändelser registrerade i perioden.";
+    list.append(empty);
+    return;
+  }
+
+  for (const event of recent) {
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = securityEventName(event.event);
+    item.append(title, document.createTextNode(` · ${securityActionLabel(event.action)}`));
+
+    if (event.subject) item.append(document.createTextNode(` · ${event.subject}`));
+    if (event.severity) {
+      item.append(document.createTextNode(" · "));
+      const severity = document.createElement("span");
+      severity.classList.add("badge", event.severity === "critical" || event.severity === "high" ? "bad" : "neutral");
+      severity.textContent = event.severity;
+      item.append(severity);
+    }
+    if (event.resolution) item.append(document.createTextNode(` · ${event.resolution}`));
+
+    item.append(document.createElement("br"));
+    const date = document.createElement("span");
+    date.className = "small";
+    date.textContent = fmtDate(event.receivedAt);
+    item.append(date);
+    list.append(item);
+  }
 }
 
 function renderRepoDetail(data) {
@@ -378,6 +410,7 @@ function renderRepoDetail(data) {
       </article>
     </div>`;
   renderCapabilities({ capabilities: [...(data.capabilities || []), ...(insights.capabilities || [])] }, "#repo-capabilities");
+  populateSecurityEventList(securityActivity);
 }
 
 async function loadRepo(name) {
