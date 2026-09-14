@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
 import { GitHubApiError } from "./github";
 import { getRepositoryInsights } from "./insights";
+import { getSecurityActivity } from "./security-events";
 import { singleFlight } from "./single-flight";
 import {
   captureOverviewSnapshot,
@@ -242,6 +243,18 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
       "overview",
       CACHE_MAX_AGE_MS,
       () => overviewWithHistory(env, context),
+    );
+  }
+
+  if (url.pathname === "/api/security-activity") {
+    const rawRepo = url.searchParams.get("repo");
+    const repo = rawRepo === null ? null : validRepoSegment(rawRepo);
+    if (rawRepo !== null && repo === null) return json({ error: "invalid repository name" }, 400);
+    const days = Number(url.searchParams.get("days") ?? "30");
+    return json(
+      await getSecurityActivity(env, repo, Number.isFinite(days) ? days : 30),
+      200,
+      { "Cache-Control": "private, no-store" },
     );
   }
 

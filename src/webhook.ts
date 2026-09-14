@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { organization } from "./env";
+import { recordSecurityEvent, securityEventFromWebhook } from "./security-events";
 import {
   invalidateSourceCache,
   recordWebhookDelivery,
@@ -126,8 +127,29 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
   const isNew = await recordWebhookDelivery(env, deliveryId, event, repo);
   if (!isNew) return response({ ok: true, duplicate: true }, 202);
 
+  const securityRecord = securityEventFromWebhook(deliveryId, event, repo, payload);
+  let securityRecorded = false;
+  if (securityRecord) {
+    try {
+      await recordSecurityEvent(env, securityRecord);
+      securityRecorded = true;
+    } catch (error) {
+      console.error("security event ledger write failed", {
+        event,
+        repo,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const keys = webhookCacheKeys(event, repo);
   if (keys.length > 0) await invalidateSourceCache(env, keys, `github:${event}`);
 
-  return response({ ok: true, event, repo, invalidated: keys.length }, 202);
+  return response({
+    ok: true,
+    event,
+    repo,
+    invalidated: keys.length,
+    ...(securityRecord ? { securityRecorded } : {}),
+  }, 202);
 }
