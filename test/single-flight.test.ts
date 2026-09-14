@@ -39,14 +39,19 @@ test("singleFlight reuses one in-flight promise per key", async () => {
 
 test("singleFlight clears a failed in-flight promise", async () => {
   let calls = 0;
+  let rejected = false;
 
-  await assert.rejects(
-    singleFlight("repository:Bastion", async () => {
+  try {
+    await singleFlight("repository:Bastion", async () => {
       calls += 1;
       throw new Error("boom");
-    }),
-    /boom/,
-  );
+    });
+  } catch (error) {
+    rejected = true;
+    assert.equal(error instanceof Error, true);
+    if (error instanceof Error) assert.equal(error.message, "boom");
+  }
+  assert.equal(rejected, true);
 
   const result = await singleFlight("repository:Bastion", async () => {
     calls += 1;
