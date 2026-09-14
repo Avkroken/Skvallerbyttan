@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
 import { GitHubApiError } from "./github";
 import { getRepositoryInsights } from "./insights";
+import { singleFlight } from "./single-flight";
 import {
   captureOverviewSnapshot,
   getHistory,
@@ -94,6 +95,15 @@ async function refreshSourceValue(
   return value;
 }
 
+function refreshSourceValueSingleFlight(
+  env: Env,
+  key: string,
+  kind: SourceCacheKind,
+  loader: () => Promise<unknown>,
+): Promise<unknown> {
+  return singleFlight(key, () => refreshSourceValue(env, key, kind, loader));
+}
+
 async function sourceCachedJson(
   env: Env,
   context: ExecutionContext,
@@ -109,7 +119,7 @@ async function sourceCachedJson(
       const invalidated = sourceCacheInvalidated(cached);
       const stale = invalidated || ageMs > ttlMs;
       if (stale) {
-        context.waitUntil(refreshSourceValue(env, key, kind, loader).catch((error) => {
+        context.waitUntil(refreshSourceValueSingleFlight(env, key, kind, loader).catch((error) => {
           console.error("source cache background refresh failed", {
             key,
             error: error instanceof Error ? error.message : String(error),
@@ -135,7 +145,7 @@ async function sourceCachedJson(
     });
   }
 
-  const value = await refreshSourceValue(env, key, kind, loader);
+  const value = await refreshSourceValueSingleFlight(env, key, kind, loader);
   const refreshedAt = new Date().toISOString();
   return json(value, 200, cacheHeaders("miss", refreshedAt, 0, ttlMs));
 }
@@ -190,7 +200,7 @@ async function overviewWithHistory(env: Env, context: ExecutionContext): Promise
 }
 
 async function refreshOverviewCache(env: Env, context: ExecutionContext): Promise<Record<string, unknown>> {
-  return await refreshSourceValue(
+  return await refreshSourceValueSingleFlight(
     env,
     "overview",
     "overview",
@@ -284,6 +294,14 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
 export default {
   async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/webhook") {
+      return json(
+        { error: "legacy webhook endpoint removed", endpoint: "/webhooks/github" },
+        410,
+        { "Cache-Control": "no-store" },
+      );
+    }
 
     if (url.pathname === "/webhooks/github") {
       try {
