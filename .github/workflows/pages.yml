@@ -17,7 +17,7 @@ permissions:
 jobs:
   pages:
     name: Publish documentation
-    uses: Avkroken/.github/.github/workflows/pages-docs.yml@main
+    uses: Avkroken/.github/.github/workflows/pages-docs.yml@c61f83847a8bc718044397005d7a575db773af0e # central Pages workflow
     with:
       source: ./docs
     permissions:
