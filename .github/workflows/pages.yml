@@ -1,0 +1,26 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  pages:
+    name: Publish documentation
+    uses: Avkroken/.github/.github/workflows/pages-docs.yml@c61f83847a8bc718044397005d7a575db773af0e # central Pages workflow
+    with:
+      source: ./docs
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

@@ -1,0 +1,13 @@
+title: Skvallerbyttan
+description: Publik projektdokumentation för Avkrokens privata GitHub-dashboard.
+lang: sv-SE
+theme: minima
+repository: Avkroken/Skvallerbyttan
+url: https://avkroken.github.io
+baseurl: /Skvallerbyttan
+header_pages:
+  - index.md
+  - architecture.md
+  - operations.md
+  - security.md
+  - project-context.md
