@@ -10,6 +10,18 @@ function context(): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
+function configuredEnv(): Env {
+  return {
+    ASSETS: { fetch: async () => new Response("asset") },
+    SKVALLERBYTTAN_GAMNACKE_CLIENT_ID: "test-gamnacke",
+    SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY: "test-private-key",
+    SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID: "test-krosa-maja",
+    SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET: "test-client-secret",
+    SKVALLERBYTTAN_SESSION_SECRET: "test-session-secret",
+    SKVALLERBYTTAN_ALLOWED_GITHUB_IDS: "1",
+  };
+}
+
 test("robots.txt is public and allows crawling so noindex can be observed", async () => {
   const response = await entry.fetch(
     new Request("https://skvallerbyttan.denied.se/robots.txt"),
@@ -41,7 +53,7 @@ test("sitemap.xml is absent instead of redirecting to login", async () => {
 test("public login response is explicitly noindex", async () => {
   const response = await entry.fetch(
     new Request("https://skvallerbyttan.denied.se/login"),
-    {} as Env,
+    configuredEnv(),
     context(),
   );
 
