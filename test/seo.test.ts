@@ -33,9 +33,9 @@ test("robots.txt is public and allows crawling so noindex can be observed", asyn
   assert.equal(response.headers.get("location"), null);
   assert.equal(response.headers.get("x-robots-tag"), "noindex");
   const body = await response.text();
-  assert.ok(/User-agent: \\*/.test(body));
-  assert.ok(/Allow: \\/$/m.test(body));
-  assert.ok(!/Disallow: \\/$/m.test(body));
+  assert.ok(/User-agent: \*/.test(body));
+  assert.ok(/Allow: \/$/m.test(body));
+  assert.ok(!/Disallow: \/$/m.test(body));
 });
 
 test("sitemap.xml is absent instead of redirecting to login", async () => {
