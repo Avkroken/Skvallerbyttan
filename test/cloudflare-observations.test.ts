@@ -15,8 +15,8 @@ import {
 import type { Env } from "../src/env";
 
 const env = {
-  SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "account123",
-  SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "token",
+  CLOUDFLARE_ACCOUNT_ID: "account123",
+  CLOUDFLARE_API_TOKEN: "token",
 } as Env;
 
 test("audit log normalization removes raw request and credential metadata", () => {
