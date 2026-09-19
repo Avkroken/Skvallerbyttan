@@ -1,11 +1,11 @@
-import { cloudflareCasbWebhookSecret, cloudflareNotificationsWebhookSecret, type Env } from "./env";
+import { secretValueConfigured, type Env } from "./env";
 import { cloudflareApiConfigured, getCloudflareBudget } from "./cloudflare";
 import { getGitHubBudget } from "./github";
 
 function githubConfigured(env: Env): boolean {
   return Boolean(
-    env.SKVALLERBYTTAN_GAMNACKE_CLIENT_ID?.trim() &&
-    env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY,
+    env.GAMNACKEN_GITHUB_APP_CLIENT_ID?.trim() &&
+    secretValueConfigured(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY),
   );
 }
 
@@ -39,7 +39,9 @@ export function getProviderHealth(env: Env): Record<string, unknown> {
           lastStatus: githubBudget.lastStatus,
         },
         webhook: {
-          configured: Boolean(env.SKVALLERBYTTAN_WEBHOOK_SECRET?.trim() && env.STATS_DB),
+          configured: Boolean(
+            secretValueConfigured(env.SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET) && env.STATS_DB,
+          ),
         },
         reconciliation: {
           configured: Boolean(env.STATS_DB),
@@ -57,10 +59,10 @@ export function getProviderHealth(env: Env): Record<string, unknown> {
         },
         webhooks: {
           notificationsConfigured: Boolean(
-            cloudflareNotificationsWebhookSecret(env) && env.STATS_DB,
+            secretValueConfigured(env.SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET) && env.STATS_DB,
           ),
           casbConfigured: Boolean(
-            cloudflareCasbWebhookSecret(env) && env.STATS_DB,
+            secretValueConfigured(env.SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET) && env.STATS_DB,
           ),
         },
         reconciliation: {
