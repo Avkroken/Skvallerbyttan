@@ -41,7 +41,7 @@ export function recordReadTelemetry(
 
 export async function getReadTelemetry(env: Env, requestedDays = 30): Promise<Record<string, unknown>> {
   const accountId = cloudflareAccountId(env);
-  const token = cloudflareApiToken(env, "r2");
+  const token = await cloudflareApiToken(env, "r2");
   if (!ACCOUNT_ID.test(accountId) || !token) {
     return { schemaVersion: 1, available: false, status: "not_configured", reason: "cloudflare-api-not-configured" };
   }
