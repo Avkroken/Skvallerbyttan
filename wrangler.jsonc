@@ -27,6 +27,12 @@
       "database_id": "12b0199f-efa2-4f96-b5c5-e3a7f2144125"
     }
   ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "OBSERVABILITY",
+      "dataset": "skvallerbyttan_observability"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
