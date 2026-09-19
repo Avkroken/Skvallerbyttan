@@ -298,6 +298,26 @@ function renderCloudflareZones(data) {
   ), "Inga zones observerade.");
 }
 
+function renderCloudflareStorage(d1, kv, r2) {
+  return kv([
+    ["D1 databases", `${statusBadge(pathStatus(d1))} ${d1.available === false ? "—" : fmtInt(d1.count)}`],
+    ["KV namespaces", `${statusBadge(pathStatus(kv))} ${kv.available === false ? "—" : fmtInt(kv.count)}`],
+    ["R2 buckets", `${statusBadge(pathStatus(r2))} ${r2.available === false ? "—" : fmtInt(r2.count)}`],
+  ]);
+}
+
+function renderCloudflareZeroTrust(access, tunnels) {
+  return `
+    ${kv([
+      ["Access applications", `${statusBadge(pathStatus(access))} ${access.available === false ? "—" : fmtInt(access.count)}`],
+      ["Tunnels", `${statusBadge(pathStatus(tunnels))} ${tunnels.available === false ? "—" : fmtInt(tunnels.count)}`],
+    ])}
+    ${list((tunnels.items || []).slice(0, 12).map((tunnel) =>
+      `<li><strong>${esc(tunnel.name || tunnel.id || "tunnel")}</strong> · ${statusBadge(tunnel.status || "unknown")}<br><span class="small">${esc(tunnel.type || "—")} · ${esc(tunnel.configSource || "—")}</span></li>`
+    ), "Inga tunnels observerade.")}
+  `;
+}
+
 function renderCloudflareAudit(data) {
   if (data.available === false) return `<p>${statusBadge(data.status)} <span class="small">${esc(data.reason || "")}</span></p>`;
   const coverage = data.coverage || {};
@@ -318,25 +338,35 @@ async function loadCloudflare(force = false) {
   $("#cloudflare-status").className = "status-callout loading";
   $("#cloudflare-status").textContent = "Laddar Cloudflare-state…";
   try {
-    const [account, zones, workers, audit] = await Promise.all([
+    const [account, zones, workers, d1, kvStorage, r2, access, tunnels, audit] = await Promise.all([
       api("/api/v1/cloudflare/account", "cf-account"),
       api("/api/v1/cloudflare/zones", "cf-zones"),
       api("/api/v1/cloudflare/workers", "cf-workers"),
+      api("/api/v1/cloudflare/storage/d1", "cf-storage-d1"),
+      api("/api/v1/cloudflare/storage/kv", "cf-storage-kv"),
+      api("/api/v1/cloudflare/storage/r2", "cf-storage-r2"),
+      api("/api/v1/cloudflare/zero-trust/access", "cf-zero-trust-access"),
+      api("/api/v1/cloudflare/zero-trust/tunnels", "cf-zero-trust-tunnels"),
       api("/api/v1/cloudflare/audit?days=7", "cf-audit"),
     ]);
     $("#cloudflare-account").innerHTML = renderCloudflareAccount(account);
     $("#cloudflare-workers").innerHTML = renderCloudflareWorkers(workers);
     $("#cloudflare-zones").innerHTML = renderCloudflareZones(zones);
+    $("#cloudflare-storage").innerHTML = renderCloudflareStorage(d1, kvStorage, r2);
+    $("#cloudflare-zero-trust").innerHTML = renderCloudflareZeroTrust(access, tunnels);
     $("#cloudflare-audit").innerHTML = renderCloudflareAudit(audit);
     $("#cloudflare-cards").innerHTML = [
       ["Account", account.available === false ? "—" : 1, pathStatus(account)],
       ["Zones", zones.available === false ? "—" : zones.count, pathStatus(zones)],
       ["Workers", workers.available === false ? "—" : workers.count, pathStatus(workers)],
+      ["Storage", [d1, kvStorage, r2].filter((item) => item.available !== false).reduce((sum, item) => sum + Number(item.count || 0), 0), [d1, kvStorage, r2].some((item) => item.available === false) ? "partial" : "available"],
+      ["Zero Trust", [access, tunnels].filter((item) => item.available !== false).reduce((sum, item) => sum + Number(item.count || 0), 0), [access, tunnels].some((item) => item.available === false) ? "partial" : "available"],
       ["Audit sample", audit.available === false ? "—" : audit.count, audit.coverage?.coverage || pathStatus(audit)],
     ].map(([label, value, hint]) =>
       `<article class="card"><p class="label">${esc(label)}</p><span class="value">${esc(value)}</span><span class="hint">${esc(hint)}</span></article>`
     ).join("");
-    const unavailable = [account, zones, workers, audit].filter((item) => item.available === false).length;
+    const unavailable = [account, zones, workers, d1, kvStorage, r2, access, tunnels, audit]
+      .filter((item) => item.available === false).length;
     $("#cloudflare-status").className = "status-callout";
     $("#cloudflare-status").innerHTML = unavailable
       ? `${statusBadge("partial")} ${unavailable} capability-källor är inte tillgängliga.`
