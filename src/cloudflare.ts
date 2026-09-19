@@ -346,3 +346,101 @@ export async function getCloudflareAuditLogs(
     },
   };
 }
+
+
+export async function getCloudflareD1Databases(env: Env): Promise<Record<string, unknown>> {
+  const rows = await cloudflareGet<unknown[]>(env, "/d1/database?per_page=100");
+  const items = array(rows).flatMap((value) => {
+    const database = record(value);
+    if (!database) return [];
+    return [{
+      uuid: text(database.uuid),
+      name: text(database.name),
+      version: text(database.version),
+      jurisdiction: text(database.jurisdiction),
+      createdAt: text(database.created_at),
+    }];
+  });
+  return { schemaVersion: 1, available: true, count: items.length, items };
+}
+
+export async function getCloudflareKvNamespaces(env: Env): Promise<Record<string, unknown>> {
+  const rows = await cloudflareGet<unknown[]>(env, "/storage/kv/namespaces?per_page=100");
+  const items = array(rows).flatMap((value) => {
+    const namespace = record(value);
+    if (!namespace) return [];
+    return [{
+      id: text(namespace.id),
+      title: text(namespace.title),
+      supportsUrlEncoding: bool(namespace.supports_url_encoding),
+    }];
+  });
+  return { schemaVersion: 1, available: true, count: items.length, items };
+}
+
+export async function getCloudflareR2Buckets(env: Env): Promise<Record<string, unknown>> {
+  const result = await cloudflareGet<UnknownRecord>(env, "/r2/buckets?per_page=100");
+  const items = array(result.buckets).flatMap((value) => {
+    const bucket = record(value);
+    if (!bucket) return [];
+    return [{
+      name: text(bucket.name),
+      creationDate: text(bucket.creation_date),
+      jurisdiction: text(bucket.jurisdiction),
+      location: text(bucket.location),
+      storageClass: text(bucket.storage_class),
+    }];
+  });
+  return { schemaVersion: 1, available: true, count: items.length, items };
+}
+
+export async function getCloudflareAccessApplications(env: Env): Promise<Record<string, unknown>> {
+  const rows = await cloudflareGet<unknown[]>(env, "/access/apps?per_page=100");
+  const items = array(rows).flatMap((value) => {
+    const application = record(value);
+    if (!application) return [];
+    const policies = array(application.policies).flatMap((policyValue) => {
+      const policy = record(policyValue);
+      if (!policy) return [];
+      return [{
+        id: text(policy.id),
+        name: text(policy.name),
+        decision: text(policy.decision),
+        precedence: number(policy.precedence),
+      }];
+    });
+    return [{
+      id: text(application.id),
+      name: text(application.name),
+      type: text(application.type),
+      domain: text(application.domain),
+      appLauncherVisible: bool(application.app_launcher_visible),
+      sessionDuration: text(application.session_duration),
+      policies,
+      createdAt: text(application.created_at),
+      updatedAt: text(application.updated_at),
+    }];
+  });
+  return { schemaVersion: 1, available: true, count: items.length, items };
+}
+
+export async function getCloudflareTunnels(env: Env): Promise<Record<string, unknown>> {
+  const rows = await cloudflareGet<unknown[]>(
+    env,
+    "/cfd_tunnel?per_page=100&is_deleted=false",
+  );
+  const items = array(rows).flatMap((value) => {
+    const tunnel = record(value);
+    if (!tunnel) return [];
+    return [{
+      id: text(tunnel.id),
+      name: text(tunnel.name),
+      status: text(tunnel.status),
+      remoteConfig: bool(tunnel.remote_config),
+      configSource: text(tunnel.config_src),
+      createdAt: text(tunnel.created_at),
+      deletedAt: text(tunnel.deleted_at),
+    }];
+  });
+  return { schemaVersion: 1, available: true, count: items.length, items };
+}
