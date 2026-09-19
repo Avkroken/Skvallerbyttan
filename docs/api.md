@@ -14,7 +14,7 @@ Capability keys, statusvokabulär, provenance och effective-state representation
 
 ## Auth
 
-Alla `/api/*` routes är privata och GET-only.
+Alla API-routes är privata och GET-only. Machine bearer-auth gäller endast `/api/v1/*`; äldre dashboard-API kräver interaktiv session.
 
 Godkänd auth:
 
