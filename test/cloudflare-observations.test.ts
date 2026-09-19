@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  getCloudflareAccessApplications,
   getCloudflareAccount,
   getCloudflareAuditLogs,
+  getCloudflareD1Databases,
+  getCloudflareKvNamespaces,
+  getCloudflareR2Buckets,
+  getCloudflareTunnels,
   getCloudflareWorkers,
   getCloudflareZones,
   normalizeCloudflareAuditLog,
@@ -49,6 +54,11 @@ test("broad Cloudflare reads use only documented GET endpoints and normalized me
     if (url.includes("/zones?")) result = [{ id: "z1", name: "example.com", status: "active", plan: { name: "Free" } }];
     else if (url.endsWith("/workers/scripts")) result = [{ id: "worker-a", compatibility_date: "2026-09-01", handlers: ["fetch"] }];
     else if (url.includes("/logs/audit?")) result = [{ id: "a1", action: { type: "update", time: "2026-09-19T08:00:00Z" } }];
+    else if (url.includes("/d1/database")) result = [{ uuid: "d1-1", name: "stats", created_at: "2026-09-01T00:00:00Z", secret_value: "must-not-leak" }];
+    else if (url.includes("/storage/kv/namespaces")) result = [{ id: "kv-1", title: "cache", hidden_value: "must-not-leak" }];
+    else if (url.includes("/r2/buckets")) result = { buckets: [{ name: "artifacts", creation_date: "2026-09-01T00:00:00Z", object: "must-not-leak" }] };
+    else if (url.includes("/access/apps")) result = [{ id: "app-1", name: "Dashboard", type: "self_hosted", domain: "private.example", policies: [{ id: "p1", name: "Allow", decision: "allow" }], secret: "must-not-leak" }];
+    else if (url.includes("/tunnels?")) result = [{ id: "tun-1", name: "edge", status: "healthy", tun_type: "cfd_tunnel", config_src: "cloudflare", connections: [{ origin_ip: "203.0.113.1" }] }];
     else if (url.endsWith("/accounts/account123")) result = { id: "account123", name: "Avkroken" };
     return new Response(JSON.stringify({ success: true, result }), {
       headers: { "content-type": "application/json", Ratelimit: '"default";r=1199;t=300' },
@@ -59,7 +69,22 @@ test("broad Cloudflare reads use only documented GET endpoints and normalized me
     assert.equal((await getCloudflareAccount(env) as any).name, "Avkroken");
     assert.equal((await getCloudflareZones(env) as any).count, 1);
     assert.equal((await getCloudflareWorkers(env) as any).count, 1);
+    const d1 = await getCloudflareD1Databases(env) as any;
+    const kv = await getCloudflareKvNamespaces(env) as any;
+    const r2 = await getCloudflareR2Buckets(env) as any;
+    const access = await getCloudflareAccessApplications(env) as any;
+    const tunnels = await getCloudflareTunnels(env) as any;
+    assert.equal(d1.count, 1);
+    assert.equal(kv.count, 1);
+    assert.equal(r2.count, 1);
+    assert.equal(access.count, 1);
+    assert.equal(tunnels.count, 1);
     assert.equal((await getCloudflareAuditLogs(env, 1) as any).count, 1);
+    const serialized = JSON.stringify({ d1, kv, r2, access, tunnels });
+    assert.equal(serialized.includes("must-not-leak"), false);
+    assert.equal(serialized.includes("203.0.113.1"), false);
+    assert.equal(seen.some((url) => url.includes("/values/")), false);
+    assert.equal(seen.some((url) => url.includes("/d1/database/") && url.includes("/query")), false);
     assert.equal(seen.every((url) => url.startsWith("https://api.cloudflare.com/client/v4/")), true);
   } finally {
     globalThis.fetch = originalFetch;
