@@ -91,6 +91,44 @@ Webhookflödet:
 6. registrerar relevant säkerhetsmetadata,
 7. invaliderar berörda source-cache-nycklar.
 
+## Cloudflare webhooks och read-only API
+
+Cloudflare Notifications använder destinationen:
+
+```text
+https://skvallerbyttan.denied.se/webhooks/cloudflare/notifications
+```
+
+Konfigurera destinationen som en generic webhook med ett separat secret. Samma värde ska finnas i Worker-secreten `SKVALLERBYTTAN_CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET`. Cloudflare skickar värdet i `cf-webhook-auth`; requests utan korrekt värde avvisas.
+
+Cloudflare One CASB använder destinationen:
+
+```text
+https://skvallerbyttan.denied.se/webhooks/cloudflare/casb
+```
+
+Välj **Static Headers** och konfigurera:
+
+- header: `x-skvallerbyttan-casb-auth`
+- värde: samma hemliga värde som Worker-secreten `SKVALLERBYTTAN_CLOUDFLARE_CASB_WEBHOOK_SECRET`
+
+För read-only Cloudflare API krävs dessutom runtimevärdena:
+
+- `SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID`
+- `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN`
+
+API-tokenet ska begränsas till det aktuella kontot och endast ha `Notifications Read` och `Zero Trust Read`. Klienten gör endast GET-anrop. Den läser Notifications-historik, policyer, Notifications-webhookstatus och CASB-webhookkonfiguration.
+
+Cloudflare-funktionerna exponeras bakom vanlig dashboardautentisering:
+
+- `GET /api/cloudflare/activity`
+- `GET /api/cloudflare/notifications/history`
+- `GET /api/cloudflare/notifications/policies`
+- `GET /api/cloudflare/notifications/webhooks`
+- `GET /api/cloudflare/casb/webhooks`
+
+Webhook-URL:er, secrets och header-värden tas bort ur API-resultaten innan de returneras till dashboarden.
+
 ## Cache och schemalagd reconciliation
 
 Normal source-cache-TTL är sex timmar. En webhook invaliderar `overview` och, när ett repository kan identifieras, även dess repository- och insightscache.
@@ -101,7 +139,7 @@ Wrangler-konfigurationen kör en schemalagd reconciliation:
 0 */6 * * *
 ```
 
-Den uppdaterar organisationsöversikten och rensar webhookleveranser äldre än sju dagar. Detta är säkerhetsnätet om en webhook fördröjs eller missas.
+Den uppdaterar GitHub-organisationsöversikten, uppdaterar Cloudflare-källorna när API-konfigurationen finns, rensar webhookleveranser äldre än sju dagar och Cloudflare-event äldre än 90 dagar. Detta är säkerhetsnätet om en webhook fördröjs eller missas.
 
 ## D1
 
@@ -110,6 +148,7 @@ D1-bindningen heter `STATS_DB`. Repositoryt innehåller följande migrationsseri
 - `0001_statistics_history.sql`
 - `0002_api_cache.sql`
 - `0003_security_events.sql`
+- `0004_cloudflare_events.sql`
 
 Migrationer och live-databasändringar ska behandlas som driftändringar och inte appliceras implicit av dokumentationsarbete.
 
