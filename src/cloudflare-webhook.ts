@@ -1,4 +1,4 @@
-import { resolveSecretValue, type Env } from "./env";
+import type { Env } from "./env";
 import { recordCloudflareEvent, type CloudflareEventRecord } from "./cloudflare-events";
 import {
   activityFromCloudflareWebhook,
@@ -121,7 +121,7 @@ export async function handleCloudflareNotificationsWebhook(request: Request, env
     return result;
   }
 
-  const secret = await resolveSecretValue(env.SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET);
+  const secret = env.CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET?.trim() || "";
   if (!secret || !sourceCacheConfigured(env)) return response({ error: "webhook not configured" }, 503);
   if (!secureEqual(request.headers.get("cf-webhook-auth"), secret)) {
     return response({ error: "invalid webhook authentication" }, 401);
@@ -160,7 +160,7 @@ export async function handleCloudflareCasbWebhook(request: Request, env: Env): P
     return result;
   }
 
-  const secret = await resolveSecretValue(env.SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET);
+  const secret = env.CLOUDFLARE_CASB_WEBHOOK_SECRET?.trim() || "";
   if (!secret || !sourceCacheConfigured(env)) return response({ error: "webhook not configured" }, 503);
   if (!secureEqual(request.headers.get(CASB_AUTH_HEADER), secret)) {
     return response({ error: "invalid webhook authentication" }, 401);
