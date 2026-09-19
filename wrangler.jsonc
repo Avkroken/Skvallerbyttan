@@ -13,7 +13,8 @@
   "secrets": {
     "required": [
       "GAMNACKEN_GITHUB_APP_PRIVATE_KEY",
-      "SKVALLERBYTTAN_SESSION_SECRET"
+      "SKVALLERBYTTAN_SESSION_SECRET",
+      "SKVALLERBYTTAN_WEBHOOK_SECRET"
     ]
   },
   "vars": {
@@ -43,16 +44,6 @@
       "binding": "KROSA_MAJA_CLIENT_SECRET",
       "store_id": "293e79006fa649b8b182ef105a6b46d1",
       "secret_name": "KROSA_MAJA_CLIENT_SECRET"
-    },
-    {
-      "binding": "SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET",
-      "store_id": "293e79006fa649b8b182ef105a6b46d1",
-      "secret_name": "SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET"
-    },
-    {
-      "binding": "SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET",
-      "store_id": "293e79006fa649b8b182ef105a6b46d1",
-      "secret_name": "SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET"
     }
   ],
   "d1_databases": [
