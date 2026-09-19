@@ -75,12 +75,6 @@ function pathStatus(value) {
   return value.status || (value.available === true ? "available" : value.available === false ? "unavailable" : "unknown");
 }
 
-function countValue(section) {
-  if (!section || typeof section !== "object") return 0;
-  const value = section.value;
-  return Array.isArray(value) ? value.length : Number(section.count ?? 0);
-}
-
 function hashTab() {
   const raw = location.hash.replace(/^#/, "");
   if (raw.startsWith("repo=")) return "overview";
