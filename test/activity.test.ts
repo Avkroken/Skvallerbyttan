@@ -54,3 +54,18 @@ test("Cloudflare audit activity is classified without raw audit payloads", () =>
   assert.equal(event?.coverage, "partial");
   assert.equal(JSON.stringify(event).includes("hidden"), false);
 });
+
+
+test("Cloudflare audit classification maps storage and Zero Trust resources to specific capabilities", () => {
+  const cases = [
+    [{ id: "a-d1", action: { type: "update" }, resource: { id: "db", type: "d1_database", product: "D1" } }, "cloudflare.avkroken.storage.d1"],
+    [{ id: "a-kv", action: { type: "update" }, resource: { id: "ns", type: "kv_namespace", product: "Workers KV" } }, "cloudflare.avkroken.storage.kv"],
+    [{ id: "a-r2", action: { type: "update" }, resource: { id: "bucket", type: "r2_bucket", product: "R2" } }, "cloudflare.avkroken.storage.r2"],
+    [{ id: "a-access", action: { type: "update" }, resource: { id: "app", type: "access_application", product: "Access" } }, "cloudflare.avkroken.zero_trust.access"],
+    [{ id: "a-tunnel", action: { type: "update" }, resource: { id: "tun", type: "tunnel", product: "Cloudflare Tunnel" } }, "cloudflare.avkroken.zero_trust.tunnels"],
+  ] as const;
+
+  for (const [payload, capability] of cases) {
+    assert.equal(activityFromCloudflareAudit(payload as any)?.capability, capability);
+  }
+});
