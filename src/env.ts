@@ -21,12 +21,47 @@ export interface Env {
   SKVALLERBYTTAN_SESSION_SECRET: string;
   SKVALLERBYTTAN_READ_API_TOKEN?: string;
   SKVALLERBYTTAN_WEBHOOK_SECRET?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CLOUDFLARE_API_TOKEN?: string;
+  CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET?: string;
+  CLOUDFLARE_CASB_WEBHOOK_SECRET?: string;
+  // Temporary migration aliases. Canonical runtime bindings are CLOUDFLARE_*.
   SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID?: string;
   SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN?: string;
   SKVALLERBYTTAN_CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET?: string;
   SKVALLERBYTTAN_CLOUDFLARE_CASB_WEBHOOK_SECRET?: string;
   SKVALLERBYTTAN_ALLOWED_GITHUB_IDS?: string;
   SKVALLERBYTTAN_ORG?: string;
+}
+
+function firstConfigured(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    const configured = value?.trim();
+    if (configured) return configured;
+  }
+  return "";
+}
+
+export function cloudflareAccountId(env: Env): string {
+  return firstConfigured(env.CLOUDFLARE_ACCOUNT_ID, env.SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID);
+}
+
+export function cloudflareApiToken(env: Env): string {
+  return firstConfigured(env.CLOUDFLARE_API_TOKEN, env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN);
+}
+
+export function cloudflareNotificationsWebhookSecret(env: Env): string {
+  return firstConfigured(
+    env.CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET,
+    env.SKVALLERBYTTAN_CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET,
+  );
+}
+
+export function cloudflareCasbWebhookSecret(env: Env): string {
+  return firstConfigured(
+    env.CLOUDFLARE_CASB_WEBHOOK_SECRET,
+    env.SKVALLERBYTTAN_CLOUDFLARE_CASB_WEBHOOK_SECRET,
+  );
 }
 
 export function organization(env: Env): string {
