@@ -47,11 +47,19 @@ Gamnacke används som GitHub App. Worker skapar App-JWT och kortlivat installati
 
 ## Cloudflare provider auth
 
-Cloudflare använder Avkrokens canonical `CLOUDFLARE_ACCOUNT_ID` och ett read-only `CLOUDFLARE_API_TOKEN`. Tokenet används för metadata/configuration reads och Analytics Engine SQL SELECT. Det används inte för produktionsändringar.
+Cloudflare-providerreads använder tre separata read-klasser enligt Avkrokens centrala credentialstandard:
 
-Samma canonical `CLOUDFLARE_API_TOKEN` används av den manuella secret-sync-workflowen. Vid en explicit driftåtgärd får tokenets Cloudflare-behörighet höjas temporärt så att Wrangler kan skriva Worker-secrets; efter verifierad sync ska behörigheten sänkas tillbaka till read-only. Observationskoden använder fortfarande endast sina dokumenterade read-anrop och får inga nya write-operationer.
+- **R1:** platform/resource reads.
+- **R2:** analytics/observability/operations reads.
+- **R3:** security/identity reads.
 
-De äldre runtime-namnen `SKVALLERBYTTAN_CLOUDFLARE_*` stöds tillfälligt endast som migrationsfallback och ska inte användas för nya secrets.
+Klasserna är partitionerade och rangordnade utan arv. Ett R3-token ersätter därför inte R1 eller R2.
+
+Worker-runtime stödjer `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3`. Under migrationen kan det äldre `CLOUDFLARE_API_TOKEN` och därefter `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` användas som fallback om den begärda klassen ännu inte är provisionerad.
+
+Produktionsdeploy och explicit secret-sync använder W1 som operationscredential när `CLOUDFLARE_API_TOKEN_W1` finns i GitHub organization secrets. W1 distribueras inte till observationsruntime som providercredential.
+
+Observationskoden får inte använda W1/O1 som fallback vid 403. En saknad providerpermission ska i stället rapporteras som capability-/permission-state.
 
 Skvallerbyttan läser inte D1-tabellinnehåll, KV values eller R2 object content som del av observationsinventeringen.
 
