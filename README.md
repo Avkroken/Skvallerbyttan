@@ -1,6 +1,6 @@
 # Skvallerbyttan
 
-Skvallerbyttan är Avkrokens privata GitHub-dashboard för repositoryhälsa, säkerhet, leverans och statistik. Tjänsten körs som en Cloudflare Worker och använder GitHub Apps, GitHub OAuth och D1 för att samla och presentera operativa signaler utan att göra dashboarden publik.
+Skvallerbyttan är Avkrokens privata operativa dashboard för GitHub- och Cloudflare-signaler kring repositoryhälsa, säkerhet, leverans och drift. Tjänsten körs som en Cloudflare Worker och använder GitHub Apps, GitHub OAuth, Cloudflares read-only API och D1 utan att göra dashboarden publik.
 
 ## Länkar
 
@@ -17,6 +17,8 @@ Skvallerbyttan är Avkrokens privata GitHub-dashboard för repositoryhälsa, sä
 - GitHub App för tjänstens GitHub API-åtkomst
 - GitHub OAuth via Krösa-Maja för användarinloggning
 - GitHub webhooks för cacheinvalidering och säkerhetshistorik
+- Cloudflare Notifications- och CASB-webhooks för eventdriven Cloudflare-historik
+- Read-only Cloudflare API för Notifications- och CASB-konfiguration
 
 Arkitektur, autentisering, webhookflöde, drift och aktuell repositorykontext finns i [projektdokumentationen](docs/index.md).
 
