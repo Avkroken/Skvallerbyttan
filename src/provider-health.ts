@@ -39,9 +39,7 @@ export function getProviderHealth(env: Env): Record<string, unknown> {
           lastStatus: githubBudget.lastStatus,
         },
         webhook: {
-          configured: Boolean(
-            secretValueConfigured(env.SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET) && env.STATS_DB,
-          ),
+          configured: Boolean(env.SKVALLERBYTTAN_WEBHOOK_SECRET?.trim() && env.STATS_DB),
           portalDocsSignalConfigured: Boolean(env.AVKROKEN_PORTAL_DOCS),
         },
         reconciliation: {
@@ -60,10 +58,10 @@ export function getProviderHealth(env: Env): Record<string, unknown> {
         },
         webhooks: {
           notificationsConfigured: Boolean(
-            secretValueConfigured(env.SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET) && env.STATS_DB,
+            env.CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET?.trim() && env.STATS_DB,
           ),
           casbConfigured: Boolean(
-            secretValueConfigured(env.SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET) && env.STATS_DB,
+            env.CLOUDFLARE_CASB_WEBHOOK_SECRET?.trim() && env.STATS_DB,
           ),
         },
         reconciliation: {
