@@ -1,6 +1,7 @@
 import {
   cloudflareAccountId,
   cloudflareApiToken,
+  cloudflareApiTokenConfigured,
   type CloudflareReadCredentialClass,
   type Env,
 } from "./env";
@@ -88,12 +89,12 @@ function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function credentials(
+async function credentials(
   env: Env,
   credentialClass: CloudflareReadCredentialClass,
-): { accountId: string; token: string } {
+): Promise<{ accountId: string; token: string }> {
   const accountId = cloudflareAccountId(env);
-  const token = cloudflareApiToken(env, credentialClass);
+  const token = await cloudflareApiToken(env, credentialClass);
   if (!ACCOUNT_ID.test(accountId) || !token) {
     throw new CloudflareApiError(`cloudflare ${credentialClass} integration not configured`, 503);
   }
@@ -103,9 +104,9 @@ function credentials(
 export function cloudflareApiConfigured(env: Env): boolean {
   const accountId = cloudflareAccountId(env);
   return ACCOUNT_ID.test(accountId)
-    && (Boolean(cloudflareApiToken(env, "r1"))
-      || Boolean(cloudflareApiToken(env, "r2"))
-      || Boolean(cloudflareApiToken(env, "r3")));
+    && (cloudflareApiTokenConfigured(env, "r1")
+      || cloudflareApiTokenConfigured(env, "r2")
+      || cloudflareApiTokenConfigured(env, "r3"));
 }
 
 function captureBudget(response: Response, error: string | null = null): void {
@@ -138,7 +139,7 @@ async function cloudflareEnvelopeUrl<T>(
   url: string,
   credentialClass: CloudflareReadCredentialClass,
 ): Promise<CloudflareEnvelope<T>> {
-  const { token } = credentials(env, credentialClass);
+  const { token } = await credentials(env, credentialClass);
   const response = await fetch(url, {
     method: "GET",
     headers: {
@@ -180,7 +181,7 @@ async function cloudflareGet<T>(
   path: string,
   credentialClass: CloudflareReadCredentialClass,
 ): Promise<T> {
-  const { accountId } = credentials(env, credentialClass);
+  const { accountId } = await credentials(env, credentialClass);
   return cloudflareGetUrl<T>(
     env,
     `${API_BASE}/accounts/${encodeURIComponent(accountId)}${path}`,
@@ -201,7 +202,7 @@ async function cloudflareListAll<T>(
     maxPages?: number;
   },
 ): Promise<PagedResult<T>> {
-  const { accountId } = credentials(env, options.credentialClass);
+  const { accountId } = await credentials(env, options.credentialClass);
   const maxPages = Math.min(20, Math.max(1, options.maxPages ?? 10));
   const items: T[] = [];
   let totalCount: number | null = null;
@@ -248,7 +249,7 @@ async function cloudflareR2BucketsAll(
   env: Env,
   maxPages = 10,
 ): Promise<PagedResult<unknown>> {
-  const { accountId } = credentials(env, "r1");
+  const { accountId } = await credentials(env, "r1");
   const items: unknown[] = [];
   let cursor: string | null = null;
   let hasMore = false;
@@ -370,7 +371,7 @@ export async function getCloudflareAccount(env: Env): Promise<Record<string, unk
 }
 
 export async function getCloudflareZones(env: Env): Promise<Record<string, unknown>> {
-  const { accountId } = credentials(env, "r1");
+  const { accountId } = await credentials(env, "r1");
   const page = await cloudflareListAll<unknown>(
     env,
     `/zones?account.id=${encodeURIComponent(accountId)}&per_page=50&order=name&direction=asc`,
@@ -599,7 +600,7 @@ export async function getCloudflareAccessApplications(env: Env): Promise<Record<
 export async function getCloudflareTunnels(env: Env): Promise<Record<string, unknown>> {
   const page = await cloudflareListAll<unknown>(
     env,
-    "/tunnels?per_page=100&is_deleted=false",
+    "/cfd_tunnel?per_page=100&is_deleted=false",
     { credentialClass: "r3" },
   );
   const items = page.items.flatMap((value) => {

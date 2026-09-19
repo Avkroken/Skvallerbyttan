@@ -28,7 +28,7 @@ test("canonical API never exposes provider error bodies or stack-like details", 
       new Request("https://skvallerbyttan.denied.se/api/v1/cloudflare/account"),
       {
         CLOUDFLARE_ACCOUNT_ID: "account123",
-        CLOUDFLARE_API_TOKEN: "token",
+        CLOUDFLARE_API_TOKEN_R2: "token",
       } as Env,
       context(),
       "chatgpt",

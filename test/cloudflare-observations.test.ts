@@ -16,7 +16,9 @@ import type { Env } from "../src/env";
 
 const env = {
   CLOUDFLARE_ACCOUNT_ID: "account123",
-  CLOUDFLARE_API_TOKEN: "token",
+  CLOUDFLARE_API_TOKEN_R1: "token-r1",
+  CLOUDFLARE_API_TOKEN_R2: "token-r2",
+  CLOUDFLARE_API_TOKEN_R3: "token-r3",
 } as Env;
 
 test("audit log normalization removes raw request and credential metadata", () => {
@@ -58,7 +60,7 @@ test("broad Cloudflare reads use only documented GET endpoints and normalized me
     else if (url.includes("/storage/kv/namespaces")) result = [{ id: "kv-1", title: "cache", hidden_value: "must-not-leak" }];
     else if (url.includes("/r2/buckets")) result = { buckets: [{ name: "artifacts", creation_date: "2026-09-01T00:00:00Z", object: "must-not-leak" }] };
     else if (url.includes("/access/apps")) result = [{ id: "app-1", name: "Dashboard", type: "self_hosted", domain: "private.example", policies: [{ id: "p1", name: "Allow", decision: "allow" }], secret: "must-not-leak" }];
-    else if (url.includes("/tunnels?")) result = [{ id: "tun-1", name: "edge", status: "healthy", tun_type: "cfd_tunnel", config_src: "cloudflare", connections: [{ origin_ip: "203.0.113.1" }] }];
+    else if (url.includes("/cfd_tunnel?")) result = [{ id: "tun-1", name: "edge", status: "healthy", tun_type: "cfd_tunnel", config_src: "cloudflare", connections: [{ origin_ip: "203.0.113.1" }] }];
     else if (url.endsWith("/accounts/account123")) result = { id: "account123", name: "Avkroken" };
     return new Response(JSON.stringify({ success: true, result }), {
       headers: { "content-type": "application/json", Ratelimit: '"default";r=1199;t=300' },

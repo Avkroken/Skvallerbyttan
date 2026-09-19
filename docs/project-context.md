@@ -55,14 +55,14 @@ Skvallerbyttans Cloudflare-provider är read-only och följer Avkrokens centrala
 Provider-reads är partitionerade och rangordnade utan arv:
 
 - **R1 — Platform / Resource Read:** Zones, Workers, D1 inventory, KV namespace inventory och R2 bucket inventory.
-- **R2 — Analytics / Observability / Operations Read:** Account, Notifications, Audit Logs och Analytics Engine SQL för read telemetry.
+- **R2 — Analytics / Content / Operations Read:** Account, Notifications, Audit Logs och Analytics Engine SQL för read telemetry.
 - **R3 — Security / Identity Read:** Access applications, Tunnels och CASB.
 
-Runtime stödjer `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3`. Det äldre generiska `CLOUDFLARE_API_TOKEN` samt `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` finns endast som migrationsfallback tills klassade credentials är provisionerade.
+Runtime binder `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3` direkt från Cloudflare Secrets Store utan generisk tokenfallback.
 
-GitHub Actions som muterar Cloudflare använder W1-credentialen när den finns. Produktionsdeploy och runtime-secret-sync behåller fallback till det äldre generiska tokenet under migrationen. Runtime-secret-sync kräver att R1/R2/R3 provisioneras som en komplett uppsättning innan den växlar från legacy-token.
+GitHub Actions som muterar Cloudflare använder W1-credentialen när den finns. Runtime-secret-sync kopierar inte längre R1/R2/R3 från GitHub till vanliga Worker secrets.
 
-Cloudflare-account-ID och webhook-secrets är separata från API-tokenklasserna. Observationskoden använder inga provider-write-operationer.
+Cloudflare-account-ID är versionerad icke-hemlig config. GitHub- och Cloudflare-webhooks använder var sitt canonical secret; Notifications och CASB delar Cloudflare-webhooksecretet. Observationskoden använder inga provider-write-operationer.
 
 ## Data
 

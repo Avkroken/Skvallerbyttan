@@ -4,14 +4,10 @@ import {
   cloudflareApiConfigured,
   getCloudflareCasbWebhooks,
   getCloudflareNotificationWebhooks,
+  getCloudflareTunnels,
   getCloudflareZones,
 } from "../src/cloudflare";
 import type { Env } from "../src/env";
-
-const env = {
-  CLOUDFLARE_ACCOUNT_ID: "account123",
-  CLOUDFLARE_API_TOKEN: "token",
-} as Env;
 
 const classedEnv = {
   CLOUDFLARE_ACCOUNT_ID: "account123",
@@ -20,23 +16,23 @@ const classedEnv = {
   CLOUDFLARE_API_TOKEN_R3: "token-r3",
 } as Env;
 
-test("Cloudflare API configuration requires both account id and token", () => {
-  assert.equal(cloudflareApiConfigured(env), true);
-  assert.equal(cloudflareApiConfigured({ CLOUDFLARE_ACCOUNT_ID: "account123" } as Env), false);
-});
+const secretsStoreEnv = {
+  CLOUDFLARE_ACCOUNT_ID: "account123",
+  CLOUDFLARE_API_TOKEN_R1: { get: async () => "store-token-r1" },
+  CLOUDFLARE_API_TOKEN_R2: { get: async () => "store-token-r2" },
+  CLOUDFLARE_API_TOKEN_R3: { get: async () => "store-token-r3" },
+} as Env;
 
-test("legacy Skvallerbyttan Cloudflare names remain a migration fallback", () => {
-  assert.equal(cloudflareApiConfigured({
-    SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "legacy-account",
-    SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "legacy-token",
-  } as Env), true);
+test("Cloudflare API configuration requires account id and a class credential", () => {
+  assert.equal(cloudflareApiConfigured(classedEnv), true);
+  assert.equal(cloudflareApiConfigured({ CLOUDFLARE_ACCOUNT_ID: "account123" } as Env), false);
 });
 
 test("R1 is used for platform resource reads", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input).startsWith("https://api.cloudflare.com/client/v4/zones?"), true);
-    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token-r1");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer store-token-r1");
     return new Response(JSON.stringify({
       success: true,
       result: [],
@@ -45,34 +41,70 @@ test("R1 is used for platform resource reads", async () => {
   };
 
   try {
-    const result = await getCloudflareZones(classedEnv);
+    const result = await getCloudflareZones(secretsStoreEnv);
     assert.equal(result.available, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("canonical Cloudflare names take precedence over migration aliases", async () => {
+
+test("R3 tunnel inventory uses the cloudflared endpoint", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
-    assert.equal(String(input), "https://api.cloudflare.com/client/v4/accounts/canonical-account");
-    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer r2-token");
+    assert.equal(
+      String(input),
+      "https://api.cloudflare.com/client/v4/accounts/account123/cfd_tunnel?per_page=100&is_deleted=false&page=1",
+    );
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer store-token-r3");
     return new Response(JSON.stringify({
       success: true,
-      result: { id: "canonical-account", name: "Avkroken" },
+      result: [{
+        id: "tunnel-id",
+        name: "avkroken",
+        status: "healthy",
+        config_src: "cloudflare",
+        tun_type: "cfd_tunnel",
+        created_at: "2026-09-19T00:00:00Z",
+        deleted_at: null,
+      }],
+      result_info: { count: 1, page: 1, per_page: 100, total_count: 1, total_pages: 1 },
     }), { headers: { "content-type": "application/json" } });
   };
 
   try {
-    const configured = {
-      CLOUDFLARE_ACCOUNT_ID: "canonical-account",
-      CLOUDFLARE_API_TOKEN_R2: "r2-token",
-      CLOUDFLARE_API_TOKEN: "canonical-token",
-      SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "legacy-account",
-      SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "legacy-token",
-    } as Env;
+    const result = await getCloudflareTunnels(secretsStoreEnv);
+    assert.equal(result.available, true);
+    assert.equal(result.count, 1);
+    assert.deepEqual((result.items as Array<Record<string, unknown>>)[0], {
+      id: "tunnel-id",
+      name: "avkroken",
+      status: "healthy",
+      remoteConfig: null,
+      configSource: "cloudflare",
+      type: "cfd_tunnel",
+      createdAt: "2026-09-19T00:00:00Z",
+      deletedAt: null,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("R2 is used for account reads", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.cloudflare.com/client/v4/accounts/account123");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token-r2");
+    return new Response(JSON.stringify({
+      success: true,
+      result: { id: "account123", name: "Avkroken" },
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  try {
     const { getCloudflareAccount } = await import("../src/cloudflare");
-    assert.equal((await getCloudflareAccount(configured) as any).name, "Avkroken");
+    assert.equal((await getCloudflareAccount(classedEnv) as any).name, "Avkroken");
   } finally {
     globalThis.fetch = originalFetch;
   }

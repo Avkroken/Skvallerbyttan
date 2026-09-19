@@ -106,11 +106,7 @@ function json(value: unknown, status = 200, extraHeaders?: HeadersInit): Respons
 }
 
 function configured(env: Env): boolean {
-  return Boolean(
-    env.SKVALLERBYTTAN_GAMNACKE_CLIENT_ID?.trim() &&
-    env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY &&
-    authConfigured(env),
-  );
+  return authConfigured(env);
 }
 
 function redirectToLogin(): Response {

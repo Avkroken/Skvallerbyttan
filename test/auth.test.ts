@@ -10,10 +10,10 @@ import {
 function env(allowed = "36226327"): Env {
   return {
     ASSETS: { fetch: async () => new Response("asset") },
-    SKVALLERBYTTAN_GAMNACKE_CLIENT_ID: "gamnacke-client",
-    SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY: "private-key",
-    SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID: "krosa-client",
-    SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET: "krosa-secret",
+    GAMNACKEN_GITHUB_APP_CLIENT_ID: "gamnacke-client",
+    GAMNACKEN_GITHUB_APP_PRIVATE_KEY: "private-key",
+    KROSA_MAJA_GITHUB_CLIENT_ID: "krosa-client",
+    KROSA_MAJA_CLIENT_SECRET: "krosa-secret",
     SKVALLERBYTTAN_SESSION_SECRET: "session-secret-with-enough-entropy-for-tests",
     SKVALLERBYTTAN_ALLOWED_GITHUB_IDS: allowed,
     SKVALLERBYTTAN_ORG: "Avkroken",

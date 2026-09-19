@@ -36,12 +36,12 @@ Den faktiska Gamnacke-permissionmängden är runtime-state och ska verifieras ge
 | --- | --- | --- | --- | --- | --- |
 | account | `GET /accounts/{id}` | Account Settings Read | R2 | account | implementerad |
 | zones | `GET /zones?account.id=...` | Zone Read | R1 | zones/account | implementerad |
-| Workers | `GET /accounts/{id}/workers/scripts` | Workers Scripts Read | R1 | account | implementerad |
+| Workers | `GET /accounts/{id}/workers/scripts` | Workers Metadata Read-Only | R1 | account | implementerad |
 | D1 inventory | `GET /accounts/{id}/d1/database` | D1 Read | R1 | account | implementerad |
 | KV inventory | `GET /accounts/{id}/storage/kv/namespaces` | Workers KV Storage Read | R1 | account | implementerad |
 | R2 inventory | `GET /accounts/{id}/r2/buckets` | Workers R2 Storage Read | R1 | account | implementerad |
 | Access applications | `GET /accounts/{id}/access/apps` | Access: Apps and Policies Read | R3 | account | implementerad |
-| Tunnels | `GET /accounts/{id}/tunnels` | Cloudflare Tunnel Read eller Cloudflare One Connectors Read | R3 | account | implementerad |
+| Tunnels | `GET /accounts/{id}/cfd_tunnel` | Cloudflare One Connector: cloudflared Read | R3 | account | implementerad |
 | Notifications | `GET /accounts/{id}/alerting/v3/*` | Notifications Read | R2 | account | implementerad |
 | CASB/Zero Trust | CASB read API/webhook config | Zero Trust Read | R3 | account | implementerad |
 | Audit Logs | `GET /accounts/{id}/logs/audit` | Account Settings Read | R2 | account | implementerad |
@@ -51,4 +51,4 @@ Analytics Engine SQL använder POST som transport men operationen är read-only 
 
 R1, R2 och R3 är separata credentialklasser. Högre klass är mer känslig men innehåller inte lägre klasser. Skvallerbyttan väljer credential per endpoint och får inte falla tillbaka till W1/O1 vid permission denied.
 
-Under migreringen får det äldre generiska Cloudflare-tokenet användas som kodfallback tills R1/R2/R3 är provisionerade. När klassade credentials är aktiva ska capability state verifieras mot faktiska provideranrop innan äldre token revokeras.
+R1/R2/R3 bindas från Cloudflare Secrets Store och varje bundet secret ska ha `workers` i sin scope-lista. Det finns ingen generisk Cloudflare-tokenfallback i runtime. Capability state ska verifieras mot faktiska provideranrop innan äldre appunika credentials revokeras.

@@ -13,10 +13,10 @@ function context(): ExecutionContext {
 function configuredEnv(): Env {
   return {
     ASSETS: { fetch: async () => new Response("asset") },
-    SKVALLERBYTTAN_GAMNACKE_CLIENT_ID: "test-gamnacke",
-    SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY: "test-private-key",
-    SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID: "test-krosa-maja",
-    SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET: "test-client-secret",
+    GAMNACKEN_GITHUB_APP_CLIENT_ID: "test-gamnacke",
+    GAMNACKEN_GITHUB_APP_PRIVATE_KEY: "test-private-key",
+    KROSA_MAJA_GITHUB_CLIENT_ID: "test-krosa-maja",
+    KROSA_MAJA_CLIENT_SECRET: "test-client-secret",
     SKVALLERBYTTAN_SESSION_SECRET: "test-session-secret",
     SKVALLERBYTTAN_ALLOWED_GITHUB_IDS: "1",
   };

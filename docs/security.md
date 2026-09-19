@@ -43,7 +43,7 @@ Alla API-responser använder privata/no-store cacheheaders.
 
 ## GitHub provider auth
 
-Gamnacke används som GitHub App. Worker skapar App-JWT och kortlivat installation token. Providerpermissions ska följa minsta möjliga read-nivå; se [Permissions]({{ '/permissions/' | relative_url }}).
+Gamnacken används som GitHub App. `GAMNACKEN_GITHUB_APP_PRIVATE_KEY` är en Worker secret och `GAMNACKEN_GITHUB_APP_CLIENT_ID` är icke-hemlig config. Worker skapar App-JWT och kortlivat installation token. Providerpermissions ska följa minsta möjliga read-nivå; se [Permissions]({{ '/permissions/' | relative_url }}).
 
 ## Cloudflare provider auth
 
@@ -55,9 +55,9 @@ Cloudflare-providerreads använder tre separata read-klasser enligt Avkrokens ce
 
 Klasserna är partitionerade och rangordnade utan arv. Ett R3-token ersätter därför inte R1 eller R2.
 
-Worker-runtime stödjer `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3`. Under migrationen kan det äldre `CLOUDFLARE_API_TOKEN` och därefter `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` användas som fallback om den begärda klassen ännu inte är provisionerad.
+Worker-runtime får `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3` som Cloudflare Secrets Store-bindings. Koden hämtar värdet asynkront via bindingens `get()` och har ingen generisk Cloudflare-tokenfallback. De bundna secreten ska vara scope:ade för `workers`.
 
-Produktionsdeploy och explicit secret-sync använder W1 som operationscredential när `CLOUDFLARE_API_TOKEN_W1` finns i GitHub organization secrets. W1 distribueras inte till observationsruntime som providercredential.
+Produktionsdeploy och explicit secret-sync använder W1 som operationscredential genom `CLOUDFLARE_API_TOKEN_W1`. W1 distribueras inte till observationsruntime som providercredential. W1 innehåller Secrets Store Write eftersom Wrangler-konfigurationen deklarerar Secrets Store-bindings.
 
 Observationskoden får inte använda W1/O1 som fallback vid 403. En saknad providerpermission ska i stället rapporteras som capability-/permission-state.
 
@@ -85,15 +85,11 @@ Audit Log-normalisering har regressionstest för dessa gränser.
 
 ### GitHub
 
-`/webhooks/github` kräver POST, konfigurerat secret och giltig `X-Hub-Signature-256`. Delivery-ID dedupliceras innan ledger/cache uppdateras.
+`/webhooks/github` kräver POST, `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET` och giltig `X-Hub-Signature-256`. Delivery-ID dedupliceras innan ledger/cache uppdateras.
 
-### Cloudflare Notifications
+### Cloudflare
 
-`/webhooks/cloudflare/notifications` använder separat `cf-webhook-auth` secret.
-
-### Cloudflare CASB
-
-`/webhooks/cloudflare/casb` använder separat statisk header `x-skvallerbyttan-casb-auth`.
+`/webhooks/cloudflare/notifications` och `/webhooks/cloudflare/casb` använder samma `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`. Notifications verifierar `cf-webhook-auth`; CASB verifierar den statiska headern `x-skvallerbyttan-casb-auth`. GitHub- och Cloudflare-webhooks delar aldrig secret.
 
 Godtyckliga webhookpayloads lagras inte. Endast explicit normaliserad metadata går till D1.
 
