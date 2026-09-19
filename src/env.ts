@@ -10,6 +10,12 @@ export interface AnalyticsEngineBinding {
   }): void;
 }
 
+export interface SecretsStoreSecretBinding {
+  get(): Promise<string>;
+}
+
+export type SecretValue = string | SecretsStoreSecretBinding;
+
 export interface Env {
   ASSETS: AssetsBinding;
   STATS_DB?: D1Database;
@@ -22,9 +28,9 @@ export interface Env {
   SKVALLERBYTTAN_READ_API_TOKEN?: string;
   SKVALLERBYTTAN_WEBHOOK_SECRET?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
-  CLOUDFLARE_API_TOKEN_R1?: string;
-  CLOUDFLARE_API_TOKEN_R2?: string;
-  CLOUDFLARE_API_TOKEN_R3?: string;
+  CLOUDFLARE_API_TOKEN_R1?: SecretValue;
+  CLOUDFLARE_API_TOKEN_R2?: SecretValue;
+  CLOUDFLARE_API_TOKEN_R3?: SecretValue;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET?: string;
   CLOUDFLARE_CASB_WEBHOOK_SECRET?: string;
@@ -51,15 +57,44 @@ export function cloudflareAccountId(env: Env): string {
 
 export type CloudflareReadCredentialClass = "r1" | "r2" | "r3";
 
-export function cloudflareApiToken(env: Env, credentialClass: CloudflareReadCredentialClass): string {
+function hasSecretValue(value: SecretValue | undefined): boolean {
+  return typeof value === "string" ? Boolean(value.trim()) : Boolean(value);
+}
+
+async function resolveSecretValue(value: SecretValue | undefined): Promise<string> {
+  if (typeof value === "string") return value.trim();
+  if (!value) return "";
+  return (await value.get()).trim();
+}
+
+export function cloudflareApiTokenConfigured(
+  env: Env,
+  credentialClass: CloudflareReadCredentialClass,
+): boolean {
   const classToken = credentialClass === "r1"
     ? env.CLOUDFLARE_API_TOKEN_R1
     : credentialClass === "r2"
       ? env.CLOUDFLARE_API_TOKEN_R2
       : env.CLOUDFLARE_API_TOKEN_R3;
 
+  return hasSecretValue(classToken)
+    || Boolean(firstConfigured(env.CLOUDFLARE_API_TOKEN, env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN));
+}
+
+export async function cloudflareApiToken(
+  env: Env,
+  credentialClass: CloudflareReadCredentialClass,
+): Promise<string> {
+  const classToken = credentialClass === "r1"
+    ? env.CLOUDFLARE_API_TOKEN_R1
+    : credentialClass === "r2"
+      ? env.CLOUDFLARE_API_TOKEN_R2
+      : env.CLOUDFLARE_API_TOKEN_R3;
+
+  const classValue = await resolveSecretValue(classToken);
+  if (classValue) return classValue;
+
   return firstConfigured(
-    classToken,
     env.CLOUDFLARE_API_TOKEN,
     env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN,
   );
