@@ -1,6 +1,6 @@
 # Skvallerbyttan
 
-Skvallerbyttan är Avkrokens privata, strikt read-only observationslager och operativa dashboard för GitHub och Cloudflare. Samma normaliserade state används av dashboarden och av auktoriserade maskinklienter, inklusive framtida ChatGPT-arbetsflöden.
+Skvallerbyttan är Avkrokens privata, strikt read-only observationslager, eventnav och operativa dashboard för GitHub och Cloudflare. Provider-events landar här, normaliseras till gemensam historik och kan därefter signalera andra Avkroken-tjänster utan att de behöver egna provider-webhooks. Samma normaliserade state används av dashboarden och av auktoriserade maskinklienter.
 
 ## Länkar
 
@@ -15,7 +15,8 @@ Skvallerbyttan är Avkrokens privata, strikt read-only observationslager och ope
 - GitHub App-baserad läsning av repository-, Actions-, security- och governance-state
 - GitHub OAuth via Krösa-Maja för interaktiv användarinloggning
 - read-only Cloudflare API för account, zones, Workers, Storage, Zero Trust, Notifications och Audit Logs
-- GitHub-, Cloudflare Notifications- och CASB-webhooks
+- central event-ingress för GitHub-, Cloudflare Notifications- och CASB-webhooks
+- intern Cloudflare Service Binding till Avkroken-portalen för riktade följdsignaler, till exempel docs-cache invalidation
 - normaliserad Activity-ledger med uttrycklig observationsgrad
 - versionerat maskin-API under `/api/v1`
 - capability-, permission-, freshness- och provider-health-modell
@@ -24,7 +25,7 @@ Skvallerbyttan är Avkrokens privata, strikt read-only observationslager och ope
 - Workers Analytics Engine för högfrekvent read telemetry
 - rate-limit/budget-observation för GitHub och Cloudflare
 
-Skvallerbyttan administrerar inte GitHub eller Cloudflare. Ingen ny provider-write-permission används för observationslagret.
+Skvallerbyttan administrerar inte GitHub eller Cloudflare. Ingen ny provider-write-permission används för observationslagret. `avkroken.denied.se` och `Avkroken/.github` är front/central organisationsyta; Skvallerbyttan är den centrala platsen för provider-events, Activity och samlad historik.
 
 ## Dokumentation
 
