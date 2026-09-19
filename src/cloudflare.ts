@@ -161,11 +161,6 @@ async function cloudflareGet<T>(env: Env, path: string): Promise<T> {
   return cloudflareGetUrl<T>(env, `${API_BASE}/accounts/${encodeURIComponent(accountId)}${path}`);
 }
 
-async function cloudflareRootGet<T>(env: Env, path: string): Promise<T> {
-  credentials(env);
-  return cloudflareGetUrl<T>(env, `${API_BASE}${path}`);
-}
-
 function pagePath(path: string, page: number): string {
   return `${path}${path.includes("?") ? "&" : "?"}page=${page}`;
 }
