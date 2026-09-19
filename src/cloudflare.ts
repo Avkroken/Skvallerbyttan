@@ -202,7 +202,7 @@ async function cloudflareListAll<T>(
     maxPages?: number;
   },
 ): Promise<PagedResult<T>> {
-  const { accountId } = credentials(env, options.credentialClass);
+  const { accountId } = await credentials(env, options.credentialClass);
   const maxPages = Math.min(20, Math.max(1, options.maxPages ?? 10));
   const items: T[] = [];
   let totalCount: number | null = null;
