@@ -85,11 +85,11 @@ Audit Log-normalisering har regressionstest för dessa gränser.
 
 ### GitHub
 
-`/webhooks/github` kräver POST, `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET` och giltig `X-Hub-Signature-256`. Delivery-ID dedupliceras innan ledger/cache uppdateras.
+`/webhooks/github` kräver POST, `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET` och giltig `X-Hub-Signature-256`. Delivery-ID dedupliceras innan ledger/cache uppdateras. Skvallerbyttan är canonical GitHub-eventingress; front-Workern ska inte ha en parallell GitHub-webhook enbart för docs-freshness. Docs-relevanta events skickas efter providerverifiering genom den interna Cloudflare Service Bindingen `AVKROKEN_PORTAL_DOCS` till portalens namngivna RPC-entrypoint. Service Bindingen kräver ingen separat secret och är inte en publik HTTP-endpoint.
 
 ### Cloudflare
 
-`/webhooks/cloudflare/notifications` och `/webhooks/cloudflare/casb` använder samma `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`. Notifications verifierar `cf-webhook-auth`; CASB verifierar den statiska headern `x-skvallerbyttan-casb-auth`. GitHub- och Cloudflare-webhooks delar aldrig secret.
+`/webhooks/cloudflare/notifications` och `/webhooks/cloudflare/casb` är canonical push-ingress för Cloudflare-händelser som exponeras via dessa mekanismer och använder samma `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`. Notifications verifierar `cf-webhook-auth`; CASB verifierar den statiska headern `x-skvallerbyttan-casb-auth`. GitHub- och Cloudflare-webhooks delar aldrig secret.
 
 Godtyckliga webhookpayloads lagras inte. Endast explicit normaliserad metadata går till D1.
 
