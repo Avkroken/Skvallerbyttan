@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  activityFromCloudflareAudit,
   activityFromCloudflareWebhook,
   activityFromGitHubWebhook,
 } from "../src/activity";
@@ -38,4 +39,18 @@ test("Cloudflare webhook activity keeps observed count semantics explicit", () =
   assert.equal(event.capability, "cloudflare.avkroken.notifications");
   assert.equal(event.coverage, "since_first_observation");
   assert.equal(event.source, "webhook");
+});
+
+
+test("Cloudflare audit activity is classified without raw audit payloads", () => {
+  const event = activityFromCloudflareAudit({
+    id: "audit-42",
+    action: { type: "update", result: "success", time: "2026-09-19T08:00:00Z" },
+    resource: { id: "worker-a", type: "script", product: "Workers", request: { secret: "no" } },
+    actor: { token_id: "hidden" },
+  });
+  assert.equal(event?.capability, "cloudflare.avkroken.workers");
+  assert.equal(event?.source, "audit_log");
+  assert.equal(event?.coverage, "partial");
+  assert.equal(JSON.stringify(event).includes("hidden"), false);
 });
