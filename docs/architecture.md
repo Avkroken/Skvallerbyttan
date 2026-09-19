@@ -6,104 +6,158 @@ permalink: /architecture/
 
 # Arkitektur
 
-## Översikt
+## Mål
 
-Skvallerbyttan är en TypeScript-baserad Cloudflare Worker med statiska dashboard-assets. Worker-entrypointen är `src/entry.ts`, den huvudsakliga request- och scheduled-logiken finns i `src/worker.ts`, och `wrangler.jsonc` binder runtime-resurserna.
+Skvallerbyttan är Avkrokens centrala read-only observationslager. GitHub och Cloudflare är auktoritativa providers; Skvallerbyttan normaliserar deras state, lagrar begränsad historik och exponerar samma canonical underlag till dashboard och auktoriserade maskinklienter.
 
 ```text
-Webbläsare
-   │
-   │ GitHub OAuth via Krösa-Maja
-   ▼
-Skvallerbyttan Worker
-   ├── privata dashboard-assets
-   ├── API för GitHub- och Cloudflare-data, historik och säkerhetsaktivitet
-   ├── GitHub App-klient via Gamnacke
-   ├── read-only Cloudflare API-klient
-   ├── separata GitHub-, Notifications- och CASB-webhookmottagare
-   └── D1
-        ├── snapshots / historik
-        ├── API-cache
-        ├── webhookleveranser
-        ├── GitHub-säkerhetshändelser
-        └── normaliserade Cloudflare-events
+GitHub APIs ───────┐
+GitHub webhooks ───┤
+                   ▼
+             Provider adapters
+                   │
+Cloudflare APIs ───┤
+CF webhooks ───────┤
+CF Audit Logs ─────┘
+                   │
+                   ▼
+           Canonical normalized state
+                   │
+      ┌────────────┼─────────────┐
+      ▼            ▼             ▼
+ source cache    D1 history   Analytics Engine
+ / current       / events     read telemetry
+      └────────────┼─────────────┘
+                   ▼
+           effective-state views
+                   │
+                   ▼
+             /api/v1 contract
+              ├── dashboard
+              └── machine clients
 ```
 
 ## Runtime
 
-`wrangler.jsonc` definierar:
+Runtime är en TypeScript-baserad Cloudflare Worker.
 
-- Worker-namnet `skvallerbyttan`.
-- `src/entry.ts` som entrypoint.
-- statiska assets från `public/`, med Worker-first-routing.
-- D1-bindningen `STATS_DB`.
-- custom domain `skvallerbyttan.denied.se`.
-- en cron-trigger var sjätte timme.
-- observability för loggar och traces.
+- entrypoint: `src/entry.ts`
+- request/scheduled orchestration: `src/worker.ts`
+- canonical observations-API: `src/observations-api.ts`
+- GitHub provider: `src/github.ts`, `src/github-governance.ts`
+- Cloudflare provider: `src/cloudflare.ts`
+- capability/statusmodell: `src/capabilities.ts`, `src/observation-model.ts`
+- Activity: `src/activity.ts`
+- read telemetry: `src/telemetry.ts`
+- provider health: `src/provider-health.ts`
+- source cache: `src/source-cache.ts`
 
-`workers_dev` och preview-URL:er är avstängda i repositorykonfigurationen.
+## Canonical state
 
-## GitHub-identiteter
+Externa klienter får normaliserade modeller, inte generella provider-dumpar. Relevant state bär status, freshness och provenance. Repository governance skiljer mellan `direct`, `inherited` och `effective` där providern ger tillräckligt underlag.
 
-Skvallerbyttan använder två separata GitHub-integrationer med olika ansvar:
+GitHub organization Actions policies och organization rulesets är en uttrycklig begränsning: GitHubs GET-endpoints kräver write-klassad Administration-permission. Skvallerbyttan begär inte den permissionen. Dessa capabilities är därför blockerade av read-only-policy, medan repository effective rulesets fortfarande kan observeras genom repository-endpointen.
 
-### Gamnacke
+## GitHub
 
-Gamnacke används som GitHub App för tjänstens maskin-till-maskin-åtkomst till GitHub API. Worker-koden skapar ett kortlivat GitHub App-JWT, hämtar organisationens installation och mintar ett installation token. Tokenet cacheas endast i Worker-instansen och förnyas före utgång.
+Gamnacke används som GitHub App för maskinåtkomst. Installation tokens är kortlivade och cacheas endast i Worker-instansen.
 
-Den här identiteten används för att läsa den GitHub-data som dashboarden behöver.
+Canonical GitHub-state omfattar bland annat:
 
-### Krösa-Maja
+- repositories, PR/issues och Actions
+- Actions organization permissions och allowed-actions/workflow-permissions
+- repository effective rulesets
+- Custom Property-definitioner och assignments
+- code security configurations
+- security alerts och webhookbaserad security history
+- rate-limit headers och provider health
 
-Krösa-Maja används för användarinloggning genom GitHub OAuth. OAuth-flödet begär endast `read:user`, använder PKCE med S256 och verifierar användarens numeriska GitHub-ID mot en uttrycklig allowlist. OAuth-tokenet används för identitetsuppslag, lagras inte av Skvallerbyttan och återkallas efter callback-flödet.
+Workflow Execution Protection-normalisering finns och är testad, men live organization/repository policylistor läses inte när GitHub kräver write-permission för GET.
 
-## Cloudflare-integration
+## Cloudflare
 
-Cloudflare-integrationen har två separata datavägar:
+Cloudflare-klienten använder ett account-scopat API-token med endast read-permissions. Canonical readyta omfattar:
 
-1. **Push/event:** Cloudflare Notifications och Cloudflare One CASB skickar webhookhändelser till separata endpoints med separata secrets. Endast normaliserad metadata lagras i D1; godtyckliga alert- och finding-payloads lagras inte.
-2. **Pull/current state:** en separat API-klient använder ett read-only Cloudflare API-token för att läsa Notifications-historik, Notifications-policyer, webhookdestinationers leveransstatus och CASB-webhookkonfiguration.
+- Account metadata
+- Zones
+- Workers metadata
+- D1 database inventory
+- KV namespace inventory
+- R2 bucket inventory
+- Access applications och begränsad policymetadata
+- Tunnels
+- Notifications/CASB
+- Audit Logs
 
-Cloudflare-läsningar cachelagras separat från GitHub-data. Webhookhändelser används som signaler för cacheinvalidering, medan API-läsningen förblir authoritative current state.
+D1 queries, KV values och R2 object content läses inte för inventory-funktionerna. Worker secret binding values returneras inte.
 
-API-svaret för webhookdestinationer reduceras innan det når dashboarden: destinations-URL:er, secrets och header-värden exponeras inte.
+## Capability- och statusmodell
 
-## Dashboard-API
+Capability-registret är ett maskinkontrakt. Varje capability har separat:
 
-Den autentiserade Worker-routen exponerar bland annat:
+- implementation support
+- provider support
+- permission state
+- data state
+- freshness
+- supported operations
+- provider endpoint och required permission
 
-- `GET /api/overview`
-- `GET /api/security-activity`
-- `GET /api/history`
-- `GET /api/insights/:repo`
-- `GET /api/repos/:repo`
-- `GET /api/cloudflare/activity`
-- `GET /api/cloudflare/notifications/history`
-- `GET /api/cloudflare/notifications/policies`
-- `GET /api/cloudflare/notifications/webhooks`
-- `GET /api/cloudflare/casb/webhooks`
+Statusvokabulären är:
 
-Repositorysegment valideras innan de används i GitHub-anrop eller D1-frågor.
+`available`, `unavailable`, `permission_denied`, `not_configured`, `not_supported`, `not_exposed_by_provider`, `unknown`, `not_observed`, `stale`, `error`.
+
+## Activity
+
+Activity lagras i D1-tabellen `observation_events`. Normaliserade event innehåller endast den metadata som behövs för aktivitet och filtrering.
+
+Source-prioritet:
+
+1. webhook
+2. Audit Log/event API
+3. snapshot diff
+4. reconciliation
+
+Nuvarande generella ledger använder främst GitHub/Cloudflare-webhooks samt Cloudflare Audit Logs. Coverage anges explicit. Webhookdata är normalt `since_first_observation`; Audit Log-ingest markeras `partial`.
+
+## Reads
+
+Read telemetry är separat från provideraktivitet. En datapunkt innehåller capability, provider, consumer, operation, result, cache-state och duration.
+
+Consumers:
+
+- `dashboard`
+- `chatgpt`
+- `reconciliation`
+- `background_refresh`
+- `internal`
+
+Telemetry skrivs till Workers Analytics Engine. SQL-aggregat väger `_sample_interval` så eventuell adaptiv sampling inte presenteras som exakta råa counts.
 
 ## Cache och reconciliation
 
-Översikts-, repository- och insightsdata lagras i en D1-baserad source cache. Normal cache-TTL är sex timmar.
+Canonical source cache ligger i D1 och har TTL per capability:
 
-GitHub-webhooks invaliderar bara de GitHub-cacheposter som berörs av händelsen. Cloudflare Notifications invaliderar motsvarande Notifications-historikcache. Nästa läsning kan då returnera den senast kända datan och starta en bakgrundsuppdatering. En schemalagd körning var sjätte timme uppdaterar GitHub-organisationsöversikten och, när Cloudflare API-konfiguration finns, de fyra Cloudflare-läsningarna som reconciliation. Den rensar även gamla webhookleveranser och Cloudflare-event enligt respektive retention.
+- governance: 5 minuter
+- Actions/governance: 5–10 minuter
+- Workers/Zero Trust: 10–15 minuter
+- account/zones: 15 minuter
+- Storage inventory: 30 minuter
 
-Single-flight-logik används för att undvika parallella identiska refresh-anrop inom samma Worker-instans.
+Stale cache kan returneras samtidigt som en single-flight background refresh startas. Webhooks invaliderar berörda cache keys där samband är känt.
 
-## Historik och säkerhetshändelser
+Cron kör var sjätte timme och fungerar som safety net. Reconciliation uppdaterar källor, observerar Audit Logs och prunar generella Activity-events.
 
-D1-migrationerna skapar stöd för:
+## Lagring
 
-1. statistik- och repositorysnapshots,
-2. API/source-cache,
-3. säkerhetshändelser,
-4. normaliserade Cloudflare-events.
+D1 ansvarar för state som behöver detaljhistorik eller konsistens:
 
-Webhookhändelser för Code Scanning, Dependabot och Secret Scanning kan sparas i en separat ledger. Endast metadata som händelsetyp, repository, alertnummer, action, severity, paket/rule/secret-typ och resolution lagras; själva hemligheten lagras inte.
+- snapshots
+- source cache
+- webhook-deduplication
+- security events
+- Cloudflare events
+- capability observations
+- canonical Activity-events
 
-## Publik dokumentation
-
-GitHub Pages är frikopplat från applikationsruntime. Pages bygger endast innehållet i `docs/` och får inte användas som alternativ produktionshost för dashboarden. Produktionsdomänen för tjänsten förblir `skvallerbyttan.denied.se`.
+Analytics Engine används för högfrekvent read telemetry. Detta undviker en D1-write för varje trivial read/cache-hit.

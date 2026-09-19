@@ -1,3 +1,9 @@
+import {
+  initObservationsNavigation,
+  refreshActiveObservationTab,
+  setOverviewForObservations,
+} from "./observations.js";
+
 const state = { overview: null, repoRequestId: null };
 const $ = (selector) => document.querySelector(selector);
 
@@ -506,6 +512,7 @@ async function loadOverview(refresh = false) {
     ]);
     data.securityActivity = securityActivity;
     state.overview = data;
+    setOverviewForObservations(data);
     renderCards(data);
     renderSinceLast(data);
     renderRepoRows(data);
@@ -522,11 +529,15 @@ async function loadOverview(refresh = false) {
   }
 }
 
-$("#refresh").addEventListener("click", () => loadOverview(true));
+$("#refresh").addEventListener("click", () => {
+  void loadOverview(true);
+  void refreshActiveObservationTab(true);
+});
 $("#close-detail").addEventListener("click", () => {
   state.repoRequestId = null;
   $("#repo-detail").classList.add("hidden");
   history.replaceState(null, "", location.pathname);
 });
 
+initObservationsNavigation();
 loadOverview();

@@ -5,6 +5,33 @@ const API_VERSION = "2026-03-10";
 const USER_AGENT = "Avkroken-Skvallerbyttan-dashboard";
 
 type InstallationToken = { value: string; expiresAt: number };
+
+export type GitHubBudget = {
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  resetAt: string | null;
+  resource: string | null;
+  retryAfterSeconds: number | null;
+  throttled: boolean;
+  lastStatus: number | null;
+  lastError: string | null;
+  observedAt: string | null;
+};
+
+let budget: GitHubBudget = {
+  limit: null,
+  remaining: null,
+  used: null,
+  resetAt: null,
+  resource: null,
+  retryAfterSeconds: null,
+  throttled: false,
+  lastStatus: null,
+  lastError: null,
+  observedAt: null,
+};
+
 let installationTokenCache: InstallationToken | null = null;
 let installationTokenInFlight: Promise<InstallationToken> | null = null;
 
@@ -148,6 +175,34 @@ async function installationToken(env: Env): Promise<string> {
   return installationTokenCache.value;
 }
 
+function numericHeader(response: Response, name: string): number | null {
+  const value = Number(response.headers.get(name));
+  return Number.isFinite(value) ? value : null;
+}
+
+function captureBudget(response: Response): void {
+  const reset = numericHeader(response, "x-ratelimit-reset");
+  const retryAfter = numericHeader(response, "retry-after");
+  const remaining = numericHeader(response, "x-ratelimit-remaining");
+  const throttled = response.status === 429 || (response.status === 403 && remaining === 0);
+  budget = {
+    limit: numericHeader(response, "x-ratelimit-limit"),
+    remaining,
+    used: numericHeader(response, "x-ratelimit-used"),
+    resetAt: reset != null ? new Date(reset * 1000).toISOString() : null,
+    resource: response.headers.get("x-ratelimit-resource"),
+    retryAfterSeconds: retryAfter,
+    throttled,
+    lastStatus: response.status,
+    lastError: throttled ? "rate_limited" : response.ok ? null : `http_${response.status}`,
+    observedAt: new Date().toISOString(),
+  };
+}
+
+export function getGitHubBudget(): GitHubBudget {
+  return { ...budget };
+}
+
 function headers(token: string, additional?: HeadersInit): Headers {
   const result = new Headers(additional);
   result.set("Accept", "application/vnd.github+json");
@@ -169,10 +224,12 @@ export async function githubResponse(
 
   let token = await installationToken(env);
   let response = await request(token);
+  captureBudget(response);
   if (response.status === 401) {
     installationTokenCache = null;
     token = await installationToken(env);
     response = await request(token);
+    captureBudget(response);
   }
   return response;
 }

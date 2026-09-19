@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { Env } from "../src/env";
+import { getProviderHealth } from "../src/provider-health";
+
+test("provider health does not claim unobserved credentials are live", () => {
+  const state = getProviderHealth({
+    SKVALLERBYTTAN_GAMNACKE_CLIENT_ID: "app",
+    SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY: "key",
+    SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "account",
+    SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "token",
+  } as Env) as any;
+
+  assert.equal(state.providers.github.status, "not_observed");
+  assert.equal(state.providers.cloudflare.status, "not_observed");
+  assert.equal(state.providers.github.reconciliation.status, "unknown");
+});

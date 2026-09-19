@@ -1,6 +1,6 @@
 # Skvallerbyttan
 
-Skvallerbyttan är Avkrokens privata operativa dashboard för GitHub- och Cloudflare-signaler kring repositoryhälsa, säkerhet, leverans och drift. Tjänsten körs som en Cloudflare Worker och använder GitHub Apps, GitHub OAuth, Cloudflares read-only API och D1 utan att göra dashboarden publik.
+Skvallerbyttan är Avkrokens privata, strikt read-only observationslager och operativa dashboard för GitHub och Cloudflare. Samma normaliserade state används av dashboarden och av auktoriserade maskinklienter, inklusive framtida ChatGPT-arbetsflöden.
 
 ## Länkar
 
@@ -9,30 +9,37 @@ Skvallerbyttan är Avkrokens privata operativa dashboard för GitHub- och Cloudf
 - **Dokumentationskälla:** [docs/](docs/)
 - **Säkerhetsrapportering:** [SECURITY.md](SECURITY.md)
 
-## Teknik
+## Huvudfunktioner
 
-- TypeScript
-- Cloudflare Workers
-- Cloudflare D1
-- GitHub App för tjänstens GitHub API-åtkomst
-- GitHub OAuth via Krösa-Maja för användarinloggning
-- GitHub webhooks för cacheinvalidering och säkerhetshistorik
-- Cloudflare Notifications- och CASB-webhooks för eventdriven Cloudflare-historik
-- Read-only Cloudflare API för Notifications- och CASB-konfiguration
+- fem toppvyer: **Översikt**, **GitHub**, **Cloudflare**, **Aktivitet** och **Insyn**
+- GitHub App-baserad läsning av repository-, Actions-, security- och governance-state
+- GitHub OAuth via Krösa-Maja för interaktiv användarinloggning
+- read-only Cloudflare API för account, zones, Workers, Storage, Zero Trust, Notifications och Audit Logs
+- GitHub-, Cloudflare Notifications- och CASB-webhooks
+- normaliserad Activity-ledger med uttrycklig observationsgrad
+- versionerat maskin-API under `/api/v1`
+- capability-, permission-, freshness- och provider-health-modell
+- read telemetry med consumer-attribution
+- D1 för persistent state, cache, snapshots och detaljerad eventhistorik
+- Workers Analytics Engine för högfrekvent read telemetry
+- rate-limit/budget-observation för GitHub och Cloudflare
 
-Arkitektur, autentisering, webhookflöde, drift och aktuell repositorykontext finns i [projektdokumentationen](docs/index.md).
+Skvallerbyttan administrerar inte GitHub eller Cloudflare. Ingen ny provider-write-permission används för observationslagret.
+
+## Dokumentation
+
+- [Arkitektur](docs/architecture.md)
+- [API](docs/api.md)
+- [Permissions](docs/permissions.md)
+- [Säkerhet](docs/security.md)
+- [Drift](docs/operations.md)
+- [Projektkontext](docs/project-context.md)
 
 ## Utveckling
-
-Installera låsta beroenden och kör hela verifieringen:
 
 ```bash
 npm ci
 npm run check
 ```
 
-`npm run check` kör tester, TypeScript-kontroll och en Wrangler dry-run. Deployment och ändringar av Cloudflare-resurser görs inte som en del av vanlig repositoryverifiering.
-
-## GitHub Pages
-
-Den publika projektdokumentationen byggs från `docs/` med GitHub Pages. Själva dashboarden fortsätter att köras på `skvallerbyttan.denied.se`; Pages är endast dokumentationsyta.
+`npm run check` kör tester, TypeScript typecheck och `wrangler deploy --dry-run`. Produktionsdeployment eller Cloudflare-resursändringar ingår inte i vanlig repositoryverifiering.

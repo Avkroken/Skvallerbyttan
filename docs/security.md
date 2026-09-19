@@ -6,76 +6,98 @@ permalink: /security/
 
 # Säkerhet
 
-Den här sidan beskriver Skvallerbyttans tekniska säkerhetsgränser. Instruktioner för privat rapportering av sårbarheter finns i repositoryts [SECURITY.md](https://github.com/Avkroken/Skvallerbyttan/blob/main/SECURITY.md).
+## Hård gräns: read-only
 
-## Privat dashboard
+Skvallerbyttan observerar GitHub och Cloudflare men administrerar dem inte. Observationslagret får inte lägga till write-permissions för att kringgå en providerbegränsning.
 
-Dashboarden är inte publik. Applikationsassets och API-data ligger bakom Skvallerbyttans egen autentisering. `noindex`-headers och robots-konfiguration minskar oavsiktlig indexering men är inte åtkomstkontroll; åtkomstkontrollen sker i Worker-koden.
+Det innebär bland annat att Skvallerbyttan inte kan ändra rulesets, Actions policies, Custom Properties, repository settings, security configurations, Workers, Zero Trust, DNS, Cloudflare policies eller secrets.
 
-Autentiserade assets skickas med privata cacheheaders och säkerhetsheaders, bland annat CSP, `X-Content-Type-Options`, `X-Frame-Options` och `Referrer-Policy`.
+GitHubs Actions Policy- och organization Ruleset-GET kräver för närvarande write-klassad Administration-permission. Dessa capabilities lämnas därför explicit otillgängliga i stället för att ge Skvallerbyttan write-access.
 
-## Användarinloggning
+## Interaktiv auth
 
-Användarinloggningen går genom Krösa-Maja som GitHub OAuth-applikation.
+Dashboarden använder GitHub OAuth via Krösa-Maja:
 
-Flödet använder:
+- scope `read:user`
+- OAuth state
+- PKCE S256
+- allowlist med numeriska GitHub-ID:n
+- `__Host-` cookies med `HttpOnly`, `Secure`, `SameSite=Lax`
+- signerad lokal session med högst 12 timmars TTL
 
-- OAuth `state` för requestkoppling,
-- PKCE med S256,
-- scope `read:user`,
-- en uttrycklig allowlist av numeriska GitHub-ID:n,
-- `__Host-`-cookies med `HttpOnly`, `Secure` och `SameSite=Lax`.
+OAuth-token används endast för identitetsuppslag och lagras inte.
 
-Efter OAuth-callback används access-tokenet endast för att läsa GitHub-identiteten. Tokenet lagras inte av Skvallerbyttan och koden försöker återkalla det efter identitetsuppslaget.
+## Machine read API
 
-Den lokala sessionen är ett HMAC-signaturverifierat payload med högst tolv timmars livslängd. En användare måste fortfarande finnas i allowlisten när sessionen verifieras.
+`/api/*` kan autentiseras med vanlig dashboard-session eller med en separat bearer-secret i `SKVALLERBYTTAN_READ_API_TOKEN`.
 
-## Tjänstens GitHub-åtkomst
+Machine-token:
 
-Dashboardens serviceåtkomst är separerad från användarinloggningen. Gamnacke används som GitHub App och Skvallerbyttan mintar kortlivade installation tokens för API-anrop.
+- ger endast GET-access till `/api/v1/*`
+- ger inte assets/dashboard-session
+- attribueras consumer `chatgpt`
+- ska lagras som Worker secret
+- returneras aldrig av något API
 
-GitHub App-behörigheter bestäms av den installerade appens konfiguration. Dashboarden hanterar nekade frivilliga API-kapabiliteter som otillgängliga i stället för att försvaga åtkomstgränsen.
+Alla API-responser använder privata/no-store cacheheaders.
 
-## Webhookintegritet
+## GitHub provider auth
 
-GitHub-webhooken kräver:
+Gamnacke används som GitHub App. Worker skapar App-JWT och kortlivat installation token. Providerpermissions ska följa minsta möjliga read-nivå; se [Permissions]({{ '/permissions/' | relative_url }}).
 
-- POST,
-- ett konfigurerat webhook-secret,
-- giltig `X-Hub-Signature-256`,
-- `X-GitHub-Event`,
-- `X-GitHub-Delivery`.
+## Cloudflare provider auth
 
-Signaturen verifieras med HMAC-SHA256 innan payloaden används. Delivery-ID dedupliceras och payloads från andra organisationer ignoreras.
+Cloudflare använder account ID och ett read-only API-token. Tokenet används för metadata/configuration reads och Analytics Engine SQL SELECT. Det används inte för produktionsändringar.
 
-## Cloudflare webhookintegritet
+Skvallerbyttan läser inte D1-tabellinnehåll, KV values eller R2 object content som del av observationsinventeringen.
 
-Cloudflare-integrationen återanvänder inte GitHubs webhook-secret.
+## Raw-data-policy
 
-- **Cloudflare Notifications** kräver ett separat secret i `cf-webhook-auth` och jämför värdet innan payloaden tolkas.
-- **Cloudflare One CASB** använder den dokumenterade autentiseringsmetoden **Static Headers** med headern `x-skvallerbyttan-casb-auth` och ett separat Worker-secret.
-- CASB HMAC-Signing används inte i denna implementation eftersom Cloudflares publika dokumentation anger stöd och `signing_secret`, men inte ett verifierbart wire-format/signaturheader för mottagarsidan. Ingen signaturmodell gissas.
-- Leveranser dedupliceras innan eventmetadatan skrivs till D1.
+Provideradapters får läsa providerresponser internt men externa modeller minimeras.
 
-CASB-payloadens `metadata` och `data` lagras inte. Notifications-fältet `text` och alertspecificerad `data` lagras inte heller. Ledgern innehåller endast begränsad identifierande metadata som eventtyp, korrelations-/finding-ID, state, policy-ID och timestamps när de finns.
+API:t får inte returnera:
 
-Cloudflare API-tokenet används endast för GET-anrop. Den avsedda permissionmängden är `Notifications Read` och `Zero Trust Read`; inga write-permissions krävs av klienten.
+- token- eller secret-värden
+- privata nycklar
+- Authorization headers
+- webhook-secrets
+- Worker secret bindings
+- KV values eller R2 object contents
+- upptäckta secret-scanning-hemligheter
+- råa Audit Log request/response payloads
+- Cloudflare Audit actor IP/token metadata
 
-## Secrets och D1
+Audit Log-normalisering har regressionstest för dessa gränser.
 
-Runtime-secrets deklareras som erforderliga i Wrangler-konfigurationen men deras faktiska värden ska endast finnas i den avsedda secret-store som används vid deployment. De ska inte skrivas till Git, issues, PR-kommentarer eller GitHub Pages.
+## Webhooks
 
-D1-ledgern för GitHub-säkerhetshändelser lagrar metadata om alerts, inte själva upptäckta hemligheten. Cloudflare-ledgern lagrar på motsvarande sätt endast normaliserad metadata och inte fulla webhookpayloads.
+### GitHub
 
-## Publik GitHub Pages-dokumentation
+`/webhooks/github` kräver POST, konfigurerat secret och giltig `X-Hub-Signature-256`. Delivery-ID dedupliceras innan ledger/cache uppdateras.
 
-Allt under den publicerade Pages-ytan ska betraktas som offentligt. Där får vi dokumentera arkitektur, publika endpoints, komponentansvar och säkerhetsmodell, men inte:
+### Cloudflare Notifications
 
-- secrets eller tokens,
-- privata nycklar,
-- hemliga webhookvärden,
-- känslig live-data,
-- privata incidentdetaljer,
-- privata runbooks eller åtkomstuppgifter.
+`/webhooks/cloudflare/notifications` använder separat `cf-webhook-auth` secret.
 
-GitHub Pages är dokumentationsyta och påverkar inte dashboardens autentiseringsmodell eller Cloudflare-produktionsdomän.
+### Cloudflare CASB
+
+`/webhooks/cloudflare/casb` använder separat statisk header `x-skvallerbyttan-casb-auth`.
+
+Godtyckliga webhookpayloads lagras inte. Endast explicit normaliserad metadata går till D1.
+
+## Public/private boundaries
+
+Publika drift/auth endpoints:
+
+- `/health`
+- `/healthz`
+- `/ready`
+- `/login`
+- OAuth callback/start/logout
+- verifierade webhookendpoints
+
+Dashboard-assets och API-state är privata. Svar sätter `noindex`/säkerhetsheaders; noindex är inte access control.
+
+## Logging
+
+Fel loggas utan credentials. Capability `lastError` klipps och ska innehålla status/orsak, inte providerrawdata eller secret material.
