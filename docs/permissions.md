@@ -18,13 +18,15 @@ Den här matrisen beskriver minsta provider-permissions för observationslagret.
 | Actions Policies / Workflow Execution Protections | `GET /orgs/{org}/actions/policies` | Administration (organization) | **write** | blockerad av read-only-policy |
 | repository Actions Policies | `GET /repos/{owner}/{repo}/actions/policies` | Administration (repository) | **write** | blockerad av read-only-policy |
 | organization Rulesets | `GET /orgs/{org}/rulesets` | Administration (organization) | **write** | blockerad av read-only-policy |
-| repository effective rulesets | `GET /repos/{owner}/{repo}/rulesets?includes_parents=true` | repository ruleset/read access | read path | implementerad |
+| repository effective rulesets | `GET /repos/{owner}/{repo}/rulesets?includes_parents=true` | Metadata (repository) | read | implementerad |
 | Custom Property definitions/assignments | `GET /orgs/{org}/properties/*` | Custom properties (organization) | read | implementerad |
 | repository Custom Property values | `GET /repos/{owner}/{repo}/properties/values` | Metadata (repository) | read | implementerad |
 | security configurations | `GET /orgs/{org}/code-security/configurations*` | Administration (organization) | read | implementerad |
 | security alerts | organization/repository scanning alert endpoints | Security events / Dependabot alerts as applicable | read | befintlig/implementerad |
 
 Skvallerbyttan ska **inte** lägga till Administration write för Actions Policies eller organization Rulesets enbart för observation.
+
+GitHub dokumenterar också att `bypass_actors` i ett repository ruleset bara returneras när anroparen har write-access till rulesetet. Skvallerbyttan använder därför `bypassActorsState: not_exposed_by_provider` när fältet är utelämnat; en tom exponerad lista är däremot `available` med noll aktörer. Ingen write-permission läggs till för att få fram bypasslistan.
 
 Den faktiska Gamnacke-permissionmängden är runtime-state och ska verifieras genom capability observations efter deployment; den rekonstrueras inte från äldre dokument.
 

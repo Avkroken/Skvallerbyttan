@@ -113,3 +113,29 @@ test("ruleset bypass actor keeps provider ID and type when unresolved", () => {
     resolved: false,
   });
 });
+
+
+test("ruleset normalization distinguishes hidden bypass actors from a verified empty list", () => {
+  const hidden = normalizeRuleset({
+    id: 10,
+    name: "inherited",
+    source_type: "Organization",
+    source: "Avkroken",
+    enforcement: "active",
+    rules: [],
+  }) as any;
+  assert.equal(hidden.bypassActors, null);
+  assert.equal(hidden.bypassActorsState, "not_exposed_by_provider");
+
+  const empty = normalizeRuleset({
+    id: 11,
+    name: "direct",
+    source_type: "Repository",
+    source: "Avkroken/Skvallerbyttan",
+    enforcement: "active",
+    bypass_actors: [],
+    rules: [],
+  }) as any;
+  assert.deepEqual(empty.bypassActors, []);
+  assert.equal(empty.bypassActorsState, "available");
+});

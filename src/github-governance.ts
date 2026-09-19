@@ -261,6 +261,7 @@ export function normalizeRuleset(value: unknown, retrievedAt = new Date().toISOS
   const ruleset = record(value) ?? {};
   const sourceType = text(ruleset.source_type);
   const direct = sourceType === "Repository";
+  const bypassActorsExposed = Object.prototype.hasOwnProperty.call(ruleset, "bypass_actors");
   return {
     id: integer(ruleset.id),
     name: text(ruleset.name),
@@ -273,7 +274,8 @@ export function normalizeRuleset(value: unknown, retrievedAt = new Date().toISOS
       const rule = record(item) ?? {};
       return { type: text(rule.type) ?? "unknown", parameters: safeObject(rule.parameters) };
     }),
-    bypassActors: array(ruleset.bypass_actors).map(normalizeActor),
+    bypassActors: bypassActorsExposed ? array(ruleset.bypass_actors).map(normalizeActor) : null,
+    bypassActorsState: bypassActorsExposed ? "available" : "not_exposed_by_provider",
     provenance: provenance({
       provider: "github",
       source: "repository-rulesets-api",
