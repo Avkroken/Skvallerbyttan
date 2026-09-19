@@ -5,18 +5,21 @@
   "compatibility_date": "2026-09-01",
   "workers_dev": false,
   "preview_urls": false,
-  "triggers": { "crons": ["0 */6 * * *"] },
+  "triggers": {
+    "crons": [
+      "0 */6 * * *"
+    ]
+  },
   "secrets": {
     "required": [
-      "SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY",
-      "SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET",
-      "SKVALLERBYTTAN_SESSION_SECRET",
-      "SKVALLERBYTTAN_WEBHOOK_SECRET"
+      "GAMNACKEN_GITHUB_APP_PRIVATE_KEY",
+      "SKVALLERBYTTAN_SESSION_SECRET"
     ]
   },
   "vars": {
-    "SKVALLERBYTTAN_GAMNACKE_CLIENT_ID": "Iv23liOiYdlTjaGldNVP",
-    "SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID": "Ov23li4Zt1X87R3Sqc7T",
+    "CLOUDFLARE_ACCOUNT_ID": "b74f8c0c6a92f3006483840cf27372fd",
+    "GAMNACKEN_GITHUB_APP_CLIENT_ID": "Iv23liOiYdlTjaGldNVP",
+    "KROSA_MAJA_GITHUB_CLIENT_ID": "Ov23li4Zt1X87R3Sqc7T",
     "SKVALLERBYTTAN_ALLOWED_GITHUB_IDS": "36226327",
     "SKVALLERBYTTAN_ORG": "Avkroken"
   },
@@ -35,6 +38,21 @@
       "binding": "CLOUDFLARE_API_TOKEN_R3",
       "store_id": "293e79006fa649b8b182ef105a6b46d1",
       "secret_name": "CLOUDFLARE_API_TOKEN_R3"
+    },
+    {
+      "binding": "KROSA_MAJA_CLIENT_SECRET",
+      "store_id": "293e79006fa649b8b182ef105a6b46d1",
+      "secret_name": "KROSA_MAJA_CLIENT_SECRET"
+    },
+    {
+      "binding": "SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET",
+      "store_id": "293e79006fa649b8b182ef105a6b46d1",
+      "secret_name": "SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET"
+    },
+    {
+      "binding": "SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET",
+      "store_id": "293e79006fa649b8b182ef105a6b46d1",
+      "secret_name": "SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET"
     }
   ],
   "d1_databases": [
@@ -53,7 +71,9 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["SecurityAlertIssueLock"]
+      "new_sqlite_classes": [
+        "SecurityAlertIssueLock"
+      ]
     },
     {
       "tag": "v2",
@@ -66,7 +86,9 @@
     },
     {
       "tag": "v3-dashboard",
-      "deleted_classes": ["SkvallerbyttanIssueLock"]
+      "deleted_classes": [
+        "SkvallerbyttanIssueLock"
+      ]
     }
   ],
   "assets": {
@@ -95,5 +117,6 @@
       "persist": true,
       "head_sampling_rate": 0.1
     }
-  }
+  },
+  "account_id": "b74f8c0c6a92f3006483840cf27372fd"
 }
