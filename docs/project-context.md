@@ -126,13 +126,13 @@ Dashboard-API:t bakom autentisering:
 
 Repositoryts README är den korta ingången. Den utförliga publika dokumentationen ligger i `docs/` och publiceras genom Avkrokens centrala GitHub Pages-workflow.
 
-Planerad Pages-adress:
+GitHub Pages är aktiverat för repositoryt. Repositorymetadata rapporterar `has_pages = true`, och projektets Pages-adress är:
 
 ```text
 https://avkroken.github.io/Skvallerbyttan/
 ```
 
-Vid verifieringen före den här ändringen rapporterade GitHub repositorymetadata `has_pages = false`. Repositorykoden konfigurerar Pages-publiceringen, men GitHub Pages måste också vara aktiverat med **Source: GitHub Actions** i repositoryinställningen innan första deployment kan lyckas.
+Pages-publiceringen använder repositoryts dokumentationsworkflow; dashboardens produktionsdomän förblir `https://skvallerbyttan.denied.se`.
 
 Avkrokens centrala portal katalogiserar publika repositories utifrån repositorymetadata. Skvallerbyttan uppfyller katalogregeln genom att vara publikt, oarkiverat, ha kategoritopic `service` och en publik HTTPS-homepage. Live-renderingen av den externa portalen verifierades inte i den här dokumentationsändringen.
 
