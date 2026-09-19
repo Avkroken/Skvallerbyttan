@@ -28,7 +28,7 @@ Wrangler definierar:
 - `ASSETS`
 - `STATS_DB`
 - `OBSERVABILITY` — Analytics Engine dataset `skvallerbyttan_observability`
-- `AVKROKEN_PORTAL_DOCS` — intern Cloudflare Service Binding till `avkroken-portal`, entrypoint `DocsInvalidationService`
+- `AVKROKEN_PORTAL_DOCS` — intern Cloudflare Service Binding till live Worker-tjänsten `avkroken`, entrypoint `DocsInvalidationService`
 - cron `0 */6 * * *`
 - custom domain `skvallerbyttan.denied.se`
 - Cloudflare account via versionerad `account_id`
@@ -104,12 +104,12 @@ För Avkroken-portalen används Service Binding-konfigurationen:
 ```json
 {
   "binding": "AVKROKEN_PORTAL_DOCS",
-  "service": "avkroken-portal",
+  "service": "avkroken",
   "entrypoint": "DocsInvalidationService"
 }
 ```
 
-`avkroken-portal` måste ha den namngivna entrypointen deployad innan en Skvallerbyttan-version med bindingen deployas. Bindingen är account-intern och använder inte GitHub- eller Cloudflare-webhooksecrets.
+den live Worker-tjänsten `avkroken` måste ha den namngivna entrypointen deployad innan en Skvallerbyttan-version med bindingen deployas. Bindingen är account-intern och använder inte GitHub- eller Cloudflare-webhooksecrets.
 
 Cloudflare Audit Logs och den schemalagda reconciliation-körningen fortsätter vara safety net för händelser som inte levereras via Notifications/CASB.
 
