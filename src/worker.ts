@@ -2,6 +2,12 @@ import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
 import { GitHubApiError } from "./github";
 import {
+  handleObservationApi,
+  reconcileObservationSources,
+} from "./observations-api";
+import { authorizeReadRequest } from "./read-access";
+import { recordReadTelemetry, type ReadConsumer } from "./telemetry";
+import {
   CloudflareApiError,
   cloudflareApiConfigured,
   getCloudflareCasbWebhooks,
@@ -49,6 +55,48 @@ const CLOUDFLARE_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
 const WEBHOOK_DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const CLOUDFLARE_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const REPO_NAME = /^[A-Za-z0-9_.-]+$/;
+
+function legacyApiCapability(pathname: string): {
+  capability: string;
+  provider: "github" | "cloudflare" | "internal";
+} {
+  if (pathname === "/api/overview" || pathname.startsWith("/api/repos/") || pathname.startsWith("/api/insights/")) {
+    return { capability: "github.avkroken.repositories", provider: "github" };
+  }
+  if (pathname === "/api/security-activity") {
+    return { capability: "github.avkroken.security", provider: "github" };
+  }
+  if (pathname.startsWith("/api/cloudflare/notifications")) {
+    return { capability: "cloudflare.avkroken.notifications", provider: "cloudflare" };
+  }
+  if (pathname.startsWith("/api/cloudflare/casb")) {
+    return { capability: "cloudflare.avkroken.zero_trust", provider: "cloudflare" };
+  }
+  if (pathname === "/api/cloudflare/activity") {
+    return { capability: "internal.activity", provider: "internal" };
+  }
+  return { capability: "internal.dashboard", provider: "internal" };
+}
+
+function recordLegacyApiRead(
+  env: Env,
+  pathname: string,
+  consumer: ReadConsumer,
+  response: Response,
+  startedAt: number,
+): void {
+  const meta = legacyApiCapability(pathname);
+  const cache = response.headers.get("x-skvallerbyttan-cache");
+  recordReadTelemetry(env, {
+    capability: meta.capability,
+    provider: meta.provider,
+    consumer,
+    operation: pathname,
+    result: response.ok ? (cache === "stale" ? "stale" : "ok") : response.status === 401 || response.status === 403 ? "permission_denied" : "error",
+    cache: cache === "hit" || cache === "stale" || cache === "miss" ? cache : "none",
+    durationMs: Date.now() - startedAt,
+  });
+}
 
 function json(value: unknown, status = 200, extraHeaders?: HeadersInit): Response {
   const headers = new Headers(extraHeaders);
@@ -260,6 +308,14 @@ async function scheduledRefresh(env: Env, context: ExecutionContext): Promise<vo
   }
 
   await scheduledCloudflareRefresh(env);
+
+  try {
+    await reconcileObservationSources(env);
+  } catch (error) {
+    console.error("observation reconciliation failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   try {
     const cutoff = new Date(Date.now() - WEBHOOK_DELIVERY_RETENTION_MS).toISOString();
@@ -481,28 +537,41 @@ export default {
       return logout();
     }
 
-    if (!configured(env)) {
-      if (url.pathname.startsWith("/api/")) {
-        return json(
-          { error: "service unavailable" },
-          503,
-          { "Cache-Control": "no-store" },
-        );
-      }
-      return redirectToLogin();
-    }
+    const isApi = url.pathname.startsWith("/api/");
+    let apiConsumer: ReadConsumer | null = null;
 
-    const userId = await authenticatedUserId(request, env);
-    if (!userId) {
-      if (url.pathname.startsWith("/api/")) {
+    if (isApi) {
+      if (request.method !== "GET") {
+        return json({ error: "method not allowed" }, 405, {
+          Allow: "GET",
+          "Cache-Control": "no-store",
+        });
+      }
+      const access = await authorizeReadRequest(request, env);
+      if (!access.authorized) {
         return json({ error: "authentication required" }, 401, { "Cache-Control": "no-store" });
       }
-      return redirectToLogin();
+      apiConsumer = access.consumer;
+    } else {
+      if (!configured(env)) return redirectToLogin();
+      const userId = await authenticatedUserId(request, env);
+      if (!userId) return redirectToLogin();
     }
 
     try {
-      if (url.pathname.startsWith("/api/")) {
-        return await handleApi(request, env, context);
+      if (isApi && apiConsumer) {
+        const observationResponse = await handleObservationApi(
+          request,
+          env,
+          context,
+          apiConsumer,
+        );
+        if (observationResponse) return observationResponse;
+
+        const startedAt = Date.now();
+        const response = await handleApi(request, env, context);
+        recordLegacyApiRead(env, url.pathname, apiConsumer, response, startedAt);
+        return response;
       }
       const assetResponse = await env.ASSETS.fetch(request);
       const headers = new Headers(assetResponse.headers);
