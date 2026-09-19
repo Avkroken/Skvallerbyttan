@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <title>Skvallerbyttan · GitHub Dashboard</title>
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <title>Skvallerbyttan · Avkrokens observationslager</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -13,7 +14,7 @@
         <div>
           <p class="eyebrow">Avkroken</p>
           <h1>Skvallerbyttan</h1>
-          <p class="subtitle">GitHub-hälsa, säkerhet, leverans och repo-statistik.</p>
+          <p class="subtitle">Read-only observationslager för GitHub, Cloudflare och operativ aktivitet.</p>
         </div>
         <div class="topbar-actions">
           <span id="freshness" class="muted">Laddar…</span>
@@ -22,91 +23,221 @@
         </div>
       </header>
 
+      <nav class="top-tabs" role="tablist" aria-label="Huvudnavigation">
+        <button id="tab-overview" class="top-tab active" role="tab" type="button"
+          aria-selected="true" aria-controls="panel-overview" tabindex="0" data-tab="overview">Översikt</button>
+        <button id="tab-github" class="top-tab" role="tab" type="button"
+          aria-selected="false" aria-controls="panel-github" tabindex="-1" data-tab="github">GitHub</button>
+        <button id="tab-cloudflare" class="top-tab" role="tab" type="button"
+          aria-selected="false" aria-controls="panel-cloudflare" tabindex="-1" data-tab="cloudflare">Cloudflare</button>
+        <button id="tab-activity" class="top-tab" role="tab" type="button"
+          aria-selected="false" aria-controls="panel-activity" tabindex="-1" data-tab="activity">Aktivitet</button>
+        <button id="tab-insight" class="top-tab" role="tab" type="button"
+          aria-selected="false" aria-controls="panel-insight" tabindex="-1" data-tab="insight">Insyn</button>
+      </nav>
+
       <section id="alert" class="alert hidden" aria-live="polite"></section>
 
-      <section aria-labelledby="overview-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Prioritet 0</p>
-            <h2 id="overview-title">Det viktigaste först</h2>
+      <div id="panel-overview" class="tab-panel" role="tabpanel" aria-labelledby="tab-overview" data-tab-panel="overview">
+        <section aria-labelledby="overview-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Lägesbild</p>
+              <h2 id="overview-title">Det viktigaste först</h2>
+            </div>
+            <p class="muted">Risk, CI, öppna PR:er och aktivt underhåll.</p>
           </div>
-          <p class="muted">Risk, CI, öppna PR:er och aktivt underhåll.</p>
-        </div>
-        <div id="cards" class="cards"></div>
-      </section>
+          <div id="provider-strip" class="provider-strip" aria-label="Provideröversikt"></div>
+          <div id="cards" class="cards"></div>
+        </section>
 
-      <section id="since-last" class="hidden" aria-labelledby="since-last-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Historik</p>
-            <h2 id="since-last-title">Sedan sist</h2>
+        <section id="since-last" class="hidden" aria-labelledby="since-last-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Historik</p>
+              <h2 id="since-last-title">Sedan sist</h2>
+            </div>
+            <p id="since-last-caption" class="muted">Förändring sedan föregående snapshot.</p>
           </div>
-          <p id="since-last-caption" class="muted">Förändring sedan föregående snapshot.</p>
-        </div>
-        <div id="since-last-cards" class="cards"></div>
-      </section>
+          <div id="since-last-cards" class="cards"></div>
+        </section>
 
-      <section aria-labelledby="attention-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Åtgärdsordning</p>
-            <h2 id="attention-title">Repos som behöver uppmärksamhet</h2>
+        <section aria-labelledby="attention-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Åtgärdsordning</p>
+              <h2 id="attention-title">Repos som behöver uppmärksamhet</h2>
+            </div>
+            <p class="muted">Snabb åtkomst till repo-detaljer. Score är en intern prioriteringssignal.</p>
           </div>
-          <p class="muted">Sorteras efter ett transparent internt attention-score.</p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Repo</th>
-                <th>Score</th>
-                <th>Säkerhet</th>
-                <th>CI</th>
-                <th>PR</th>
-                <th>Issues</th>
-                <th>Senast push</th>
-              </tr>
-            </thead>
-            <tbody id="repo-rows"></tbody>
-          </table>
-        </div>
-      </section>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Repo</th>
+                  <th>Score</th>
+                  <th>Säkerhet</th>
+                  <th>CI</th>
+                  <th>PR</th>
+                  <th>Issues</th>
+                  <th>Senast push</th>
+                </tr>
+              </thead>
+              <tbody id="repo-rows"></tbody>
+            </table>
+          </div>
+        </section>
 
-      <section id="repo-detail" class="detail hidden" aria-labelledby="repo-title">
-        <div class="section-heading detail-heading">
-          <div>
-            <p class="eyebrow">Repo-specifik data</p>
-            <h2 id="repo-title">Repository</h2>
+        <section id="repo-detail" class="detail hidden" aria-labelledby="repo-title">
+          <div class="section-heading detail-heading">
+            <div>
+              <p class="eyebrow">Repo-specifik data</p>
+              <h2 id="repo-title">Repository</h2>
+            </div>
+            <button id="close-detail" class="secondary" type="button">Stäng</button>
           </div>
-          <button id="close-detail" class="secondary" type="button">Stäng</button>
-        </div>
-        <div id="repo-detail-content"></div>
-      </section>
+          <div id="repo-detail-content"></div>
+        </section>
+      </div>
 
-      <section aria-labelledby="capabilities-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Datatäckning</p>
-            <h2 id="capabilities-title">GitHub API-kapabiliteter</h2>
+      <div id="panel-github" class="tab-panel" role="tabpanel" aria-labelledby="tab-github"
+        data-tab-panel="github" hidden>
+        <section aria-labelledby="github-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Provider</p>
+              <h2 id="github-title">GitHub</h2>
+            </div>
+            <p class="muted">Repository-, Actions-, security- och governance-state från samma canonical backend.</p>
           </div>
-          <p class="muted">En nekad permission visas som otillgänglig utan att resten av dashboarden bryts.</p>
-        </div>
-        <div id="capabilities" class="capabilities"></div>
-      </section>
+          <div id="github-status" class="status-callout loading">Laddar GitHub-state…</div>
+          <div id="github-cards" class="cards compact"></div>
+          <div class="detail-grid tab-grid">
+            <article class="panel wide">
+              <h3>Organisation · governance</h3>
+              <div id="github-governance"></div>
+            </article>
+            <article class="panel">
+              <h3>Permissions och policyyta</h3>
+              <div id="github-permissions"></div>
+            </article>
+            <article class="panel full">
+              <h3>Repository inventory</h3>
+              <div class="table-wrap embedded">
+                <table class="mini-table">
+                  <thead><tr><th>Repo</th><th>Visibility</th><th>CI</th><th>Security</th><th>Push</th></tr></thead>
+                  <tbody id="github-repo-rows"></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
 
-      <section class="roadmap" aria-labelledby="roadmap-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Implementationsordning</p>
-            <h2 id="roadmap-title">Från signal till historik</h2>
+      <div id="panel-cloudflare" class="tab-panel" role="tabpanel" aria-labelledby="tab-cloudflare"
+        data-tab-panel="cloudflare" hidden>
+        <section aria-labelledby="cloudflare-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Provider</p>
+              <h2 id="cloudflare-title">Cloudflare</h2>
+            </div>
+            <p class="muted">Account, zones, Workers, Zero Trust-signaler, Notifications och Audit Logs.</p>
           </div>
-        </div>
-        <ol>
-          <li><strong>P0 · nu:</strong> säkerhetsalerts, Actions-hälsa, öppna/stale PR:er, issues och repo-prioritering.</li>
-          <li><strong>P1 · nu:</strong> repo-detaljer för trafik, språk, contributors, releases, workflows, deployments, branches och rulesets när GitHub Appen har read-access.</li>
-          <li><strong>P2 · nu:</strong> sample-baserad PR lead time/tid till första review, Actions-duration/MTTR och deployment-frekvens/change-failure-rate, plus aktivitetstrend. D1-snapshots aktiverar längre historik och ”Sedan sist”.</li>
-        </ol>
-      </section>
+          <div id="cloudflare-status" class="status-callout loading">Laddar Cloudflare-state…</div>
+          <div id="cloudflare-cards" class="cards compact"></div>
+          <div class="detail-grid tab-grid">
+            <article class="panel">
+              <h3>Account</h3>
+              <div id="cloudflare-account"></div>
+            </article>
+            <article class="panel">
+              <h3>Workers</h3>
+              <div id="cloudflare-workers"></div>
+            </article>
+            <article class="panel">
+              <h3>Zones</h3>
+              <div id="cloudflare-zones"></div>
+            </article>
+            <article class="panel full">
+              <h3>Audit · senaste observerade förändringar</h3>
+              <p class="small">Audit-vyn visar minimerad metadata. Rå request/response, tokenmetadata och credentials exponeras inte.</p>
+              <div id="cloudflare-audit"></div>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <div id="panel-activity" class="tab-panel" role="tabpanel" aria-labelledby="tab-activity"
+        data-tab-panel="activity" hidden>
+        <section aria-labelledby="activity-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Observerad aktivitet</p>
+              <h2 id="activity-title">Aktivitet</h2>
+            </div>
+            <p class="muted">Räknar vad Skvallerbyttan faktiskt har observerat — inte automatiskt all aktivitet hos providern.</p>
+          </div>
+          <div class="filterbar" aria-label="Aktivitetsfilter">
+            <div class="range-buttons" role="group" aria-label="Tidsintervall">
+              <button type="button" class="secondary activity-range" data-days="1">24 h</button>
+              <button type="button" class="secondary activity-range" data-days="7">7 d</button>
+              <button type="button" class="activity-range active" data-days="30">30 d</button>
+            </div>
+            <label>Provider
+              <select id="activity-provider">
+                <option value="">Alla</option>
+                <option value="github">GitHub</option>
+                <option value="cloudflare">Cloudflare</option>
+              </select>
+            </label>
+          </div>
+          <div id="activity-status" class="status-callout loading">Laddar aktivitet…</div>
+          <div class="detail-grid tab-grid">
+            <article class="panel wide">
+              <h3>Ranking</h3>
+              <div id="activity-ranking" class="activity-ranking"></div>
+            </article>
+            <article class="panel">
+              <h3>Observationsgrad</h3>
+              <div id="activity-coverage"></div>
+            </article>
+            <article class="panel full">
+              <h3>Eventström</h3>
+              <div id="activity-stream"></div>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <div id="panel-insight" class="tab-panel" role="tabpanel" aria-labelledby="tab-insight"
+        data-tab-panel="insight" hidden>
+        <section aria-labelledby="insight-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Vad Skvallerbyttan ser</p>
+              <h2 id="insight-title">Insyn</h2>
+            </div>
+            <p class="muted">Providerstöd, permission, data-state, freshness, health, Activity och Reads hålls isär.</p>
+          </div>
+          <div id="insight-status" class="status-callout loading">Laddar capability-registret…</div>
+          <div class="detail-grid tab-grid">
+            <article class="panel full">
+              <h3>Provider health och budget</h3>
+              <div id="provider-health"></div>
+            </article>
+            <article class="panel full">
+              <h3>Capabilities</h3>
+              <div id="capability-cards" class="capability-grid"></div>
+            </article>
+            <article class="panel full">
+              <h3>Reads · 30 dagar</h3>
+              <p class="small">Dashboard-, ChatGPT- och background/reconciliation-reads är separata från provideraktivitet.</p>
+              <div id="read-metrics"></div>
+            </article>
+          </div>
+        </section>
+      </div>
     </main>
 
     <script type="module" src="/app.js"></script>
