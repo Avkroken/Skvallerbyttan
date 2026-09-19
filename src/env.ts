@@ -30,7 +30,8 @@ export interface Env {
   AVKROKEN_PORTAL_DOCS?: AvkrokenPortalDocsServiceBinding;
 
   GAMNACKEN_GITHUB_APP_CLIENT_ID: string;
-  GAMNACKEN_GITHUB_APP_PRIVATE_KEY: SecretValue;
+  GAMNACKEN_GITHUB_APP_PRIVATE_KEY?: SecretValue;
+  SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY?: string;
 
   KROSA_MAJA_GITHUB_CLIENT_ID: string;
   KROSA_MAJA_CLIENT_SECRET: SecretValue;
@@ -58,6 +59,16 @@ export async function resolveSecretValue(value: SecretValue | undefined): Promis
   if (typeof value === "string") return value.trim();
   if (!value) return "";
   return (await value.get()).trim();
+}
+
+export function gamnackenPrivateKeyConfigured(env: Env): boolean {
+  return secretValueConfigured(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY)
+    || Boolean(env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY?.trim());
+}
+
+export async function gamnackenPrivateKey(env: Env): Promise<string> {
+  const canonical = await resolveSecretValue(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY);
+  return canonical || env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY?.trim() || "";
 }
 
 export function cloudflareAccountId(env: Env): string {
