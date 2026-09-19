@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { verifyWebhookSignature, webhookCacheKeys } from "../src/webhook";
+import { portalDocsInvalidation, verifyWebhookSignature, webhookCacheKeys } from "../src/webhook";
 
 test("verifies GitHub's documented SHA-256 webhook test vector", async () => {
   const valid = await verifyWebhookSignature(
@@ -31,4 +31,55 @@ test("repository activity invalidates overview and only that repository's deep c
 
 test("irrelevant webhook events do not invalidate dashboard cache", () => {
   assert.deepEqual(webhookCacheKeys("ping", null), []);
+});
+
+
+test("documentation pushes signal the portal only from the public default branch", () => {
+  const base = {
+    ref: "refs/heads/main",
+    size: 1,
+    repository: {
+      name: "Skvallerbyttan",
+      default_branch: "main",
+      private: false,
+      visibility: "public",
+      owner: { login: "Avkroken" },
+    },
+  };
+
+  assert.deepEqual(portalDocsInvalidation("push", {
+    ...base,
+    commits: [{ added: [], modified: ["docs/architecture.md"], removed: [] }],
+  }), {
+    repositoryName: "Skvallerbyttan",
+    previousRepositoryName: null,
+  });
+
+  assert.equal(portalDocsInvalidation("push", {
+    ...base,
+    commits: [{ added: [], modified: ["src/worker.ts"], removed: [] }],
+  }), null);
+
+  assert.equal(portalDocsInvalidation("push", {
+    ...base,
+    ref: "refs/heads/dev",
+    commits: [{ added: [], modified: ["docs/architecture.md"], removed: [] }],
+  }), null);
+});
+
+test("repository rename invalidates both current and previous portal documentation tags", () => {
+  assert.deepEqual(portalDocsInvalidation("repository", {
+    repository: {
+      name: "Skvallerbyttan",
+      owner: { login: "Avkroken" },
+    },
+    changes: {
+      repository: {
+        name: { from: "Gamla-Skvallerbyttan" },
+      },
+    },
+  }), {
+    repositoryName: "Skvallerbyttan",
+    previousRepositoryName: "Gamla-Skvallerbyttan",
+  });
 });
