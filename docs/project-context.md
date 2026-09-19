@@ -50,24 +50,19 @@ Viktig providerbegränsning: list/get av Actions Policies och organization Rules
 
 ## Cloudflare
 
-Canonical Cloudflare runtime bindings använder Avkrokens organization-wide `CLOUDFLARE_*`-namn. GitHub organization secrets är credential-källa; en manuell secret-sync workflow transporterar värden till Worker-runtime utan att de behöver exponeras eller kopieras av en operatör. Samma befintliga `CLOUDFLARE_API_TOKEN` används för sync när dess behörighet temporärt har höjts och återställs därefter till read-only.
+Skvallerbyttans Cloudflare-provider är read-only och följer Avkrokens centrala credentialmodell i `Avkroken/.github/docs/cloudflare-credential-standard.md`.
 
-Read-only provider client omfattar:
+Provider-reads är partitionerade och rangordnade utan arv:
 
-- Account
-- Zones
-- Workers
-- D1 inventory
-- KV namespace inventory
-- R2 bucket inventory
-- Access applications
-- Tunnels
-- Notifications
-- CASB
-- Audit Logs
-- Analytics Engine SQL för read telemetry
+- **R1 — Platform / Resource Read:** Zones, Workers, D1 inventory, KV namespace inventory och R2 bucket inventory.
+- **R2 — Analytics / Observability / Operations Read:** Account, Notifications, Audit Logs och Analytics Engine SQL för read telemetry.
+- **R3 — Security / Identity Read:** Access applications, Tunnels och CASB.
 
-Ingen Cloudflare-plugin var tillgänglig under implementationen, så den faktiska nuvarande token-permissionmängden kunde inte verifieras externt. Runtime capability observations ska därför avgöra `granted` kontra `permission_denied` efter deployment.
+Runtime stödjer `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3`. Det äldre generiska `CLOUDFLARE_API_TOKEN` samt `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` finns endast som migrationsfallback tills klassade credentials är provisionerade.
+
+GitHub Actions som muterar Cloudflare använder W1-credentialen när den finns. Produktionsdeploy och runtime-secret-sync behåller fallback till det äldre generiska tokenet under migrationen. Runtime-secret-sync kräver att R1/R2/R3 provisioneras som en komplett uppsättning innan den växlar från legacy-token.
+
+Cloudflare-account-ID och webhook-secrets är separata från API-tokenklasserna. Observationskoden använder inga provider-write-operationer.
 
 ## Data
 
