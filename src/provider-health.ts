@@ -42,6 +42,7 @@ export function getProviderHealth(env: Env): Record<string, unknown> {
           configured: Boolean(
             secretValueConfigured(env.SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET) && env.STATS_DB,
           ),
+          portalDocsSignalConfigured: Boolean(env.AVKROKEN_PORTAL_DOCS),
         },
         reconciliation: {
           configured: Boolean(env.STATS_DB),
