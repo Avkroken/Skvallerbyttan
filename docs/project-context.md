@@ -4,161 +4,109 @@ title: Projektkontext
 permalink: /project-context/
 ---
 
-# Skvallerbyttan project context
+# Projektkontext
 
-Det här dokumentet beskriver repositoryts aktuella tekniska state och ska uppdateras när arkitektur, GitHub-policy, deploymentmodell eller integrationsgränser ändras.
-
-**Senast verifierad:** 2026-09-19
-
-## Auktoritet och läsordning
-
-Vid konflikt gäller i första hand aktuell live-state i berört system, därefter aktiva GitHub-organisationsregler och repositoryinställningar, sedan filer på `main` och sist det här dokumentet.
-
-Avkrokens organisationsgemensamma GitHub-standard finns i `Avkroken/.github/docs/engineering-context.md`.
+Senast verifierad för observationslagerarbetet: 2026-09-19.
 
 ## Repository
 
-- Repository: `Avkroken/Skvallerbyttan`
-- Visibility: public
-- Default branch: `main`
-- Befintliga långlivade branches vid verifieringen: `main` och `dev`
-- Huvudspråk/runtime: TypeScript / Cloudflare Workers
-- Produktionsadress: `https://skvallerbyttan.denied.se`
-- Repositoryt är markerat som template.
-- Licens: MIT.
+- repository: `Avkroken/Skvallerbyttan`
+- default branch: `main`
+- runtime: TypeScript Cloudflare Worker
+- production domain: `https://skvallerbyttan.denied.se`
+- dashboard: privat
+- repository/Pages docs: publika
+- full repository check: `npm run check`
 
-Agentdrivna ändringar följer Avkrokens centrala arbetsgrensformat och går via pull request till default branch.
+Avkroken/.github är central källa för organisationsgemensam engineering-, CI- och governance-kontext.
 
-## Syfte
+## Produktansvar
 
-Skvallerbyttan är en privat operativ dashboard för Avkroken. Den sammanställer repositoryhälsa, säkerhetsalerts, Actions-data, pull requests, issues, deployments och historik från GitHub samt read-only Notifications-/CASB-state och webhookhändelser från Cloudflare.
+Skvallerbyttan är Avkrokens centrala **read-only observationslager** för GitHub och Cloudflare. Dashboard och machine API delar samma canonical normaliserade state.
 
-Dashboarden är privat även om repositoryt och projektdokumentationen är publika.
+Skvallerbyttan är inte ett administrativt provider-API.
 
-## GitHub Custom Properties och rulesets
+## Dashboard
 
-Verifierad repositoryklassning:
+Top-level navigation:
 
-- `ci_stack = node`
-- `platform = cloudflare`
+1. Översikt
+2. GitHub
+3. Cloudflare
+4. Aktivitet
+5. Insyn
 
-Effektiva organisations-rulesets på default branch vid verifieringen:
+Navigationen är tangentbordsnavigerbar, deep-linkbar och data lazy-laddas per flik.
 
-- `main` — generell default-branch-policy med PR-krav, blockerad deletion/force-push, CodeQL, code quality, secret-scanning-resolution, dependency review och Copilot code review. Inga bypass-aktörer är konfigurerade.
-- `main-node` — kräver Avkrokens centrala Node-workflow.
-- `main-cloudflare` — kräver Avkrokens centrala Cloudflare-workflow.
+## GitHub integrationer
 
-Repositorypolicy får inte försvagas för att få en ändring att passera.
+- **Gamnacke:** GitHub App för provider-reads.
+- **Krösa-Maja:** OAuth login för människan.
+- **GitHub webhook:** eventdriven Activity, security ledger och cache invalidation.
 
-## Runtime
+GitHub REST API-version: `2026-03-10`.
 
-`wrangler.jsonc` definierar:
+Viktig providerbegränsning: list/get av Actions Policies och organization Rulesets kräver write-klassad Administration-permission. Den permissionen ingår inte i Skvallerbyttans arkitektur. Dessa capabilities ska därför visa read-only blocker/permission denied. Repository effective rulesets används där de kan observeras med mindre privilegium.
 
-- Worker `skvallerbyttan`
-- entrypoint `src/entry.ts`
-- statiska assets i `public/`
-- Worker-first asset routing
-- custom domain `skvallerbyttan.denied.se`
-- D1-bindningen `STATS_DB`
-- cron `0 */6 * * *`
-- observability med loggar och traces
-- `workers_dev = false`
-- preview-URL:er avstängda
+## Cloudflare
 
-Produktionsdeployment är en separat Cloudflare-åtgärd och ska inte ske implicit från dokumentationsarbete.
+Read-only provider client omfattar:
 
-## Autentisering
+- Account
+- Zones
+- Workers
+- D1 inventory
+- KV namespace inventory
+- R2 bucket inventory
+- Access applications
+- Tunnels
+- Notifications
+- CASB
+- Audit Logs
+- Analytics Engine SQL för read telemetry
 
-Skvallerbyttan använder separata GitHub-identiteter:
+Ingen Cloudflare-plugin var tillgänglig under implementationen, så den faktiska nuvarande token-permissionmängden kunde inte verifieras externt. Runtime capability observations ska därför avgöra `granted` kontra `permission_denied` efter deployment.
 
-- **Gamnacke GitHub App** för tjänstens GitHub API-åtkomst. Worker-koden mintar installation tokens från ett kortlivat app-JWT.
-- **Krösa-Maja GitHub OAuth** för användarinloggning. Flödet använder `read:user`, PKCE S256 och en explicit GitHub-ID-allowlist.
+## Data
 
-OAuth-tokenet lagras inte av Skvallerbyttan och koden försöker återkalla det efter identitetsuppslaget.
+D1 används för persistent state, cache, detailed events och reconciliation state. Migration `0005_observations.sql` introducerar capability observations och generic Activity ledger.
 
-Den lokala sessionen är HMAC-signerad, lagras i en `__Host-`-cookie och har högst tolv timmars livslängd.
+Workers Analytics Engine dataset `skvallerbyttan_observability` tar read telemetry med consumer-attribution.
 
-Cloudflare använder en tredje separat tjänsteidentitet: ett API-token med read-only permissions `Notifications Read` och `Zero Trust Read`. Webhookautentisering använder två egna secrets som inte återanvänds mellan Notifications, CASB eller GitHub.
+## API
 
-## Data och cache
+Canonical kontrakt ligger under `/api/v1`. Det kan läsas av:
 
-D1 används för:
+- autentiserad dashboard-session
+- machine bearer-token `SKVALLERBYTTAN_READ_API_TOKEN`
 
-- organisations- och repositorysnapshots,
-- source/API-cache,
-- webhook-delivery-deduplicering,
-- säkerhetshändelser,
-- normaliserade Cloudflare Notifications-/CASB-events.
+Machine access är GET-only och attribueras consumer `chatgpt`.
 
-GitHub source-cache-TTL är sex timmar och Cloudflare-läsningar använder 15 minuter. Webhooks invaliderar berörd cache och nästa läsning kan trigga bakgrundsuppdatering. En cron-driven reconciliation körs var sjätte timme för GitHub och, när Cloudflare API-konfiguration finns, även för Cloudflare-källorna.
+## Epistemisk modell
 
-Säkerhetsledgern lagrar metadata för Code Scanning-, Dependabot- och Secret Scanning-händelser, inte själva upptäckta hemligheten.
+Data ska aldrig implikera högre säkerhet än källan stödjer.
 
-## Publika och privata endpoints
+- provider current state är högst prioritet
+- stale cache är explicit stale
+- Activity betyder observerad aktivitet
+- derived relationer markeras derived
+- provider gaps använder `not_exposed_by_provider` eller `permission_denied`
+- frånvaro av observation använder `not_observed` eller `unknown`
 
-Publika drift-/auth-endpoints före dashboardautentisering:
+## Metrics och kostnad
 
-- `/health`
-- `/healthz`
-- `/ready`
-- `/login`
-- `/auth/github`
-- `/auth/github/callback`
-- `/auth/logout`
-- `/webhooks/github`
-- `/webhooks/cloudflare/notifications`
-- `/webhooks/cloudflare/casb`
+Read telemetry ligger i Analytics Engine; detailed events ligger i D1.
 
-Dashboard-API:t bakom autentisering:
+Analytics Engine har tre månaders retention. SQL-queries väger `_sample_interval` för sampled data. Nuvarande faktiska volume/cost kan först verifieras efter deployment och ska inte uppskattas som live-fakta i förväg.
 
-- `/api/overview`
-- `/api/security-activity`
-- `/api/history`
-- `/api/insights/:repo`
-- `/api/repos/:repo`
-- `/api/cloudflare/activity`
-- `/api/cloudflare/notifications/history`
-- `/api/cloudflare/notifications/policies`
-- `/api/cloudflare/notifications/webhooks`
-- `/api/cloudflare/casb/webhooks`
+## Deploymentstatus för detta arkitekturarbete
 
-## Dokumentation och katalogisering
+Repositorykod och dokumentation kan mergeas utan att automatiskt:
 
-Repositoryts README är den korta ingången. Den utförliga publika dokumentationen ligger i `docs/` och publiceras genom Avkrokens centrala GitHub Pages-workflow.
+- migrera produktions-D1
+- skapa machine token
+- ändra GitHub App permissions
+- ändra Cloudflare API-token permissions
+- deploya Worker
 
-GitHub Pages är aktiverat för repositoryt. Repositorymetadata rapporterar `has_pages = true`, och projektets Pages-adress är:
-
-```text
-https://avkroken.github.io/Skvallerbyttan/
-```
-
-Pages-publiceringen använder repositoryts dokumentationsworkflow; dashboardens produktionsdomän förblir `https://skvallerbyttan.denied.se`.
-
-Avkrokens centrala portal katalogiserar publika repositories utifrån repositorymetadata. Skvallerbyttan uppfyller katalogregeln genom att vara publikt, oarkiverat, ha kategoritopic `service` och en publik HTTPS-homepage. Live-renderingen av den externa portalen verifierades inte i den här dokumentationsändringen.
-
-## Verifiering
-
-Repositoryts fulla lokala kontroll är:
-
-```bash
-npm ci
-npm run check
-```
-
-`npm run check` kör tester, TypeScript typecheck och Wrangler dry-run.
-
-## Uppdateringskontrakt
-
-Uppdatera detta dokument när något av följande förändras:
-
-- runtime eller Cloudflare-bindningar,
-- GitHub App- eller OAuth-ansvar,
-- auth- eller sessionsmodell,
-- cache/reconciliation/webhookmodell,
-- D1-användning eller migrationsansvar,
-- Custom Properties eller effektiva rulesets,
-- CI-verifieringskommandon,
-- produktionsdomän,
-- GitHub Pages-status eller dokumentationsarkitektur.
-
-Historik finns i Git; dokumentet ska beskriva current state och inte samla föråldrade varianter.
+Dessa är separata efterföljande driftåtgärder.
