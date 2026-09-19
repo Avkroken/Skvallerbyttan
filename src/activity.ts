@@ -342,7 +342,7 @@ export async function getObservedActivity(
       schemaVersion: 1,
       available: false,
       status: "error",
-      reason: error instanceof Error ? error.message : String(error),
+      reason: "activity_query_failed",
     };
   }
 }
