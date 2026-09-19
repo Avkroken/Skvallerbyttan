@@ -55,8 +55,7 @@ export async function getReadTelemetry(env: Env, requestedDays = 30): Promise<Re
       blob3 AS operation,
       blob4 AS result,
       blob5 AS cache,
-      SUM(double1) AS reads,
-      AVG(double2) AS avg_duration_ms
+      SUM(_sample_interval * double1) AS reads,\n      SUM(_sample_interval * double2) / SUM(_sample_interval) AS avg_duration_ms
     FROM ${DATASET}
     WHERE timestamp >= NOW() - INTERVAL '${days}' DAY
     GROUP BY capability, provider, consumer, operation, result, cache
