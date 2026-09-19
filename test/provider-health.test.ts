@@ -7,8 +7,8 @@ test("provider health does not claim unobserved credentials are live", () => {
   const state = getProviderHealth({
     SKVALLERBYTTAN_GAMNACKE_CLIENT_ID: "app",
     SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY: "key",
-    SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "account",
-    SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "token",
+    CLOUDFLARE_ACCOUNT_ID: "account",
+    CLOUDFLARE_API_TOKEN: "token",
   } as Env) as any;
 
   assert.equal(state.providers.github.status, "not_observed");

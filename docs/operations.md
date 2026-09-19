@@ -34,7 +34,31 @@ Wrangler definierar:
 Nya runtime-secrets för observationslagret:
 
 - `SKVALLERBYTTAN_READ_API_TOKEN` — machine read API
-- befintligt `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` måste ha de read-permissions som faktiskt ska observeras
+- Avkrokens befintliga `CLOUDFLARE_ACCOUNT_ID`
+- Avkrokens befintliga read-only `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET`
+- `CLOUDFLARE_CASB_WEBHOOK_SECRET`
+
+De fyra `CLOUDFLARE_*`-namnen är canonical både i Avkrokens GitHub organization secrets och i Worker-runtime. De äldre `SKVALLERBYTTAN_CLOUDFLARE_*`-namnen finns endast som tillfälliga kodalias under migreringen och ska inte nyprovisioneras.
+
+### Secret ownership och rotation
+
+GitHub organization secrets är canonical källa för de befintliga Cloudflare-credentialsen. Ett dolt org-secret ska inte roteras enbart för att någon behöver kopiera värdet till Cloudflare.
+
+`.github/workflows/sync-cloudflare-runtime-secrets.yml` är den explicita transportvägen. Den läser de befintliga org-secretsen och synkar dem till Worker-runtime utan att operatören behöver se eller kopiera värdena.
+
+Secret-sync återanvänder det befintliga `CLOUDFLARE_API_TOKEN`. När sync eller annan explicit Wrangler-drift kräver högre Cloudflare-behörighet höjs behörigheten temporärt på samma token, jobbet körs och verifieras, och tokenets behörighet sänks därefter tillbaka till den normala read-only-nivån. Ingen extra transporttoken och inget extra org-secret skapas.
+
+Secret-sync är endast `workflow_dispatch`. Det är avsiktligt: `wrangler secret bulk` skapar en ny Worker-version och deployar den direkt, så sync är en explicit produktionsåtgärd och inte en PR-gate eller vanlig merge-side-effect.
+
+Rotations-/syncflödet är därför:
+
+1. höj vid behov behörigheten temporärt på befintligt `CLOUDFLARE_API_TOKEN`,
+2. kör **Sync Cloudflare runtime secrets**,
+3. verifiera workflowets secret-list och Skvallerbyttans provider health/capabilities,
+4. sänk tokenets behörighet tillbaka till read-only.
+
+Webhook-secret för Notifications och CASB måste vara separata. Workflowet failar stängt om de är samma värde.
 
 ## Migrationer
 

@@ -8,13 +8,45 @@ import {
 import type { Env } from "../src/env";
 
 const env = {
-  SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "account123",
-  SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "token",
+  CLOUDFLARE_ACCOUNT_ID: "account123",
+  CLOUDFLARE_API_TOKEN: "token",
 } as Env;
 
 test("Cloudflare API configuration requires both account id and token", () => {
   assert.equal(cloudflareApiConfigured(env), true);
-  assert.equal(cloudflareApiConfigured({ SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "account123" } as Env), false);
+  assert.equal(cloudflareApiConfigured({ CLOUDFLARE_ACCOUNT_ID: "account123" } as Env), false);
+});
+
+test("legacy Skvallerbyttan Cloudflare names remain a migration fallback", () => {
+  assert.equal(cloudflareApiConfigured({
+    SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "legacy-account",
+    SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "legacy-token",
+  } as Env), true);
+});
+
+test("canonical Cloudflare names take precedence over migration aliases", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.cloudflare.com/client/v4/accounts/canonical-account");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer canonical-token");
+    return new Response(JSON.stringify({
+      success: true,
+      result: { id: "canonical-account", name: "Avkroken" },
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const configured = {
+      CLOUDFLARE_ACCOUNT_ID: "canonical-account",
+      CLOUDFLARE_API_TOKEN: "canonical-token",
+      SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "legacy-account",
+      SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "legacy-token",
+    } as Env;
+    const { getCloudflareAccount } = await import("../src/cloudflare");
+    assert.equal((await getCloudflareAccount(configured) as any).name, "Avkroken");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("notification webhook reads redact destination URLs", async () => {
