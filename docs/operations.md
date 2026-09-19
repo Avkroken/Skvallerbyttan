@@ -30,37 +30,49 @@ Wrangler definierar:
 - `OBSERVABILITY` — Analytics Engine dataset `skvallerbyttan_observability`
 - cron `0 */6 * * *`
 - custom domain `skvallerbyttan.denied.se`
+- Cloudflare account via versionerad `account_id`
 
-Runtime använder:
+Icke-hemlig runtime-konfiguration:
 
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN_R1` — Secrets Store-binding, Platform / Resource Read
-- `CLOUDFLARE_API_TOKEN_R2` — Secrets Store-binding, Analytics / Observability / Operations Read
-- `CLOUDFLARE_API_TOKEN_R3` — Secrets Store-binding, Security / Identity Read
-- `CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET`
-- `CLOUDFLARE_CASB_WEBHOOK_SECRET`
+- `GAMNACKEN_GITHUB_APP_CLIENT_ID`
+- `KROSA_MAJA_GITHUB_CLIENT_ID`
+
+Cloudflare Secrets Store-bindings:
+
+- `CLOUDFLARE_API_TOKEN_R1` — Platform / Resource Read
+- `CLOUDFLARE_API_TOKEN_R2` — Analytics / Content / Operations Read
+- `CLOUDFLARE_API_TOKEN_R3` — Security / Identity Read
+- `KROSA_MAJA_CLIENT_SECRET`
+- `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET`
+- `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`
+
+Varje bunden Secrets Store-secret ska ha `workers` i sin scope-lista. Bindings hämtar värden asynkront via `get()`; kodvägarna använder inte äldre generiska Cloudflare-token eller Skvallerbyttan-specifika aliases som fallback.
+
+Vanliga Worker secrets:
+
+- `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`
+- `SKVALLERBYTTAN_SESSION_SECRET`
 - `SKVALLERBYTTAN_READ_API_TOKEN` — valfri machine read API
 
-Secrets Store-bindningarna hämtar värdet asynkront med `get()`. Under migration/lokal utveckling stöder koden det äldre `CLOUDFLARE_API_TOKEN` och `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` som fallback när en klassbinding saknas.
+Gamnackens privata GitHub App-nyckel ligger som vanlig Worker secret eftersom den råa RSA-PEM-representationen överskrider Secrets Stores nuvarande 1024-bytegräns per secret. Koden accepterar PKCS#1 `RSA PRIVATE KEY` och PKCS#8 `PRIVATE KEY`; PKCS#1 wrap:as till PKCS#8 i minnet före Web Crypto-import.
 
-GitHub Actions som muterar Cloudflare använder `CLOUDFLARE_API_TOKEN_W1`. W1 ska inte synkas till Worker-runtime som observationscredential.
+GitHub Actions som muterar Cloudflare använder endast `CLOUDFLARE_API_TOKEN_W1`. Wrangler får värdet via den miljövariabel som verktyget kräver, `CLOUDFLARE_API_TOKEN`, men det finns inget generiskt org-secret med det namnet.
 
 ### Runtime secret-sync
 
 `.github/workflows/sync-cloudflare-runtime-secrets.yml` är endast `workflow_dispatch` och delar concurrency-grupp med produktionsdeploy.
 
-Workflowen använder W1 för Wrangler-operationen och synkar endast Worker-secrets som inte är providercredentials:
+Workflowen använder W1 och synkar endast Worker-lokala secrets som inte kan eller ska vara Secrets Store-bindings:
 
-- `CLOUDFLARE_ACCOUNT_ID`
-- Notifications webhook secret
-- CASB webhook secret
-- valfri machine read API-token
+- `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`
+- valfri `SKVALLERBYTTAN_READ_API_TOKEN`
 
-R1/R2/R3 kopieras inte längre från GitHub Organization Secrets. De bindas direkt från Cloudflare Secrets Store genom `wrangler.jsonc`.
+R1/R2/R3, Krösa-Majas client secret och båda webhook-credentials läses direkt från Cloudflare Secrets Store och kopieras inte från GitHub till vanliga Worker secrets.
 
-Webhook-secret för Notifications och CASB måste vara separata.
+Cloudflare Notifications och CASB använder samma `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`, men verifierar den via respektive protokolls/header-mekanism. GitHub använder den separata `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET`.
 
-Deploy av en Worker med Secrets Store-bindings kräver enligt Cloudflare **Secrets Store Write** på API-tokenet som Wrangler använder. W1 har denna permission och kan därför användas för produktionsdeployen.
+Deploy av en Worker med Secrets Store-bindings kräver att W1 täcker Secrets Store Write. Varje bunden secret måste dessutom vara scope:ad för `workers`.
 
 ### Rotation
 
@@ -161,7 +173,7 @@ Insyn visar denna senaste observerade budgetstate. Avsaknad av tidigare anrop ä
 3. `npm run deploy`
 4. `npm run verify:production` mot `/health` och `/ready`
 
-Workflowen använder W1 genom `CLOUDFLARE_API_TOKEN_W1` när credentialen är provisionerad. Under migrationen finns fallback till det äldre `CLOUDFLARE_API_TOKEN`.
+Workflowen använder W1 genom `CLOUDFLARE_API_TOKEN_W1`. Wrangler exponeras värdet som `CLOUDFLARE_API_TOKEN`, vilket är verktygets fasta miljövariabelnamn och inte ett separat generiskt org-secret.
 
 W1 behöver täcka Worker deployment/routes och D1 Write när remote migration körs. Eftersom Worker-konfigurationen innehåller Secrets Store-bindings kräver Cloudflare dessutom Secrets Store Write på deploytokenet. W1 distribueras inte till observationsruntime som providercredential.
 
