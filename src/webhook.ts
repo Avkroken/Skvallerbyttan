@@ -1,4 +1,4 @@
-import { organization, resolveSecretValue, type Env } from "./env";
+import { organization, type Env } from "./env";
 import { recordSecurityEvent, securityEventFromWebhook } from "./security-events";
 import { activityFromGitHubWebhook, recordObservedActivity } from "./activity";
 import {
@@ -203,7 +203,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     return result;
   }
 
-  const secret = await resolveSecretValue(env.SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET);
+  const secret = env.SKVALLERBYTTAN_WEBHOOK_SECRET?.trim() || "";
   if (!secret || !sourceCacheConfigured(env)) return response({ error: "webhook not configured" }, 503);
 
   const body = await request.text();

@@ -45,15 +45,16 @@ Cloudflare Secrets Store-bindings:
 - `CLOUDFLARE_API_TOKEN_R2` — Analytics / Content / Operations Read
 - `CLOUDFLARE_API_TOKEN_R3` — Security / Identity Read
 - `KROSA_MAJA_CLIENT_SECRET`
-- `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET`
-- `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`
 
-Varje bunden Secrets Store-secret ska ha `workers` i sin scope-lista. Bindings hämtar värden asynkront via `get()`; kodvägarna använder inte äldre generiska Cloudflare-token eller Skvallerbyttan-specifika aliases som fallback.
+Varje bunden Secrets Store-secret ska ha `workers` i sin scope-lista. Bindings hämtar värden asynkront via `get()`; kodvägarna använder inte äldre generiska Cloudflare-token som fallback.
 
-Vanliga Worker secrets:
+Befintliga vanliga Worker secrets återanvänds för webhook-ingress i stället för att duplicera eller rotera fungerande credentials:
 
 - `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`
 - `SKVALLERBYTTAN_SESSION_SECRET`
+- `SKVALLERBYTTAN_WEBHOOK_SECRET` — GitHub provider-webhook
+- `CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET`
+- `CLOUDFLARE_CASB_WEBHOOK_SECRET`
 - `SKVALLERBYTTAN_READ_API_TOKEN` — valfri machine read API
 
 Gamnackens privata GitHub App-nyckel ligger som vanlig Worker secret eftersom den råa RSA-PEM-representationen överskrider Secrets Stores nuvarande 1024-bytegräns per secret. Koden accepterar PKCS#1 `RSA PRIVATE KEY` och PKCS#8 `PRIVATE KEY`; PKCS#1 wrap:as till PKCS#8 i minnet före Web Crypto-import.
@@ -64,14 +65,14 @@ GitHub Actions som muterar Cloudflare använder endast `CLOUDFLARE_API_TOKEN_W1`
 
 `.github/workflows/sync-cloudflare-runtime-secrets.yml` är endast `workflow_dispatch` och delar concurrency-grupp med produktionsdeploy.
 
-Workflowen använder W1 och synkar endast Worker-lokala secrets som inte kan eller ska vara Secrets Store-bindings:
+Workflowen använder W1 och synkar endast Worker-lokala secrets som uttryckligen har en GitHub-källa:
 
 - `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`
 - valfri `SKVALLERBYTTAN_READ_API_TOKEN`
 
-R1/R2/R3, Krösa-Majas client secret och båda webhook-credentials läses direkt från Cloudflare Secrets Store och kopieras inte från GitHub till vanliga Worker secrets.
+R1/R2/R3 och Krösa-Majas client secret läses direkt från Cloudflare Secrets Store. Befintliga webhook Worker secrets lämnas orörda av deploy och secret-sync.
 
-Cloudflare Notifications och CASB använder samma `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`, men verifierar den via respektive protokolls/header-mekanism. GitHub använder den separata `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET`.
+GitHub använder `SKVALLERBYTTAN_WEBHOOK_SECRET`. Cloudflare Notifications använder `CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET` och CASB använder `CLOUDFLARE_CASB_WEBHOOK_SECRET`.
 
 GitHub-providerwebhooken är också canonical trigger för portalens dokumentationsfreshness. På docs-relevanta `push`-events på publik default branch samt `repository`-events anropar Skvallerbyttan `AVKROKEN_PORTAL_DOCS.invalidateDocs(...)`. RPC-anropet kräver ingen ytterligare secret och går inte via publik HTTP. Tre korta retryförsök görs; vid fortsatt fel loggas signalfelet medan GitHub-eventet fortfarande kan lagras och portalens edge-TTL fungerar som fallback.
 
