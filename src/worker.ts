@@ -551,6 +551,9 @@ export default {
       if (!access.authorized) {
         return json({ error: "authentication required" }, 401, { "Cache-Control": "no-store" });
       }
+      if (access.consumer === "chatgpt" && !url.pathname.startsWith("/api/v1/")) {
+        return json({ error: "not found" }, 404, { "Cache-Control": "no-store" });
+      }
       apiConsumer = access.consumer;
     } else {
       if (!configured(env)) return redirectToLogin();
