@@ -1,4 +1,4 @@
-import { resolveSecretValue, secretValueConfigured, type Env } from "./env";
+import { gamnackenPrivateKeyConfigured, resolveSecretValue, secretValueConfigured, type Env } from "./env";
 
 const CALLBACK_URL = "https://skvallerbyttan.denied.se/auth/github/callback";
 const GITHUB_API_VERSION = "2026-03-10";
@@ -95,7 +95,7 @@ function allowedIds(env: Env): Set<number> {
 export function authConfigured(env: Env): boolean {
   return Boolean(
     env.GAMNACKEN_GITHUB_APP_CLIENT_ID?.trim() &&
-    secretValueConfigured(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY) &&
+    gamnackenPrivateKeyConfigured(env) &&
     env.KROSA_MAJA_GITHUB_CLIENT_ID?.trim() &&
     secretValueConfigured(env.KROSA_MAJA_CLIENT_SECRET) &&
     env.SKVALLERBYTTAN_SESSION_SECRET &&
