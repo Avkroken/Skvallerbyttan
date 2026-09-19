@@ -33,7 +33,7 @@ OAuth-token används endast för identitetsuppslag och lagras inte.
 
 Machine-token:
 
-- ger endast GET-access till API
+- ger endast GET-access till `/api/v1/*`
 - ger inte assets/dashboard-session
 - attribueras consumer `chatgpt`
 - ska lagras som Worker secret
