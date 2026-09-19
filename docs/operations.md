@@ -60,7 +60,7 @@ R1/R2/R3 kopieras inte längre från GitHub Organization Secrets. De bindas dire
 
 Webhook-secret för Notifications och CASB måste vara separata.
 
-Deploy av en Worker med Secrets Store-bindings kräver enligt Cloudflare **Secrets Store Write** på API-tokenet som Wrangler använder. Produktionsdeploy är därför blockerad tills W1 har den permissionen eller deploymodellen ändras.
+Deploy av en Worker med Secrets Store-bindings kräver enligt Cloudflare **Secrets Store Write** på API-tokenet som Wrangler använder. W1 har denna permission och kan därför användas för produktionsdeployen.
 
 ### Rotation
 
