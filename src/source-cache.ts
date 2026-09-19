@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 
-export type SourceCacheKind = "overview" | "repository" | "insights";
+export type SourceCacheKind = "overview" | "repository" | "insights" | "cloudflare";
 
 export type SourceCacheEntry<T> = {
   value: T;
