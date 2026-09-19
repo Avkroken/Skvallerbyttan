@@ -22,6 +22,9 @@ export interface Env {
   SKVALLERBYTTAN_READ_API_TOKEN?: string;
   SKVALLERBYTTAN_WEBHOOK_SECRET?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
+  CLOUDFLARE_API_TOKEN_R1?: string;
+  CLOUDFLARE_API_TOKEN_R2?: string;
+  CLOUDFLARE_API_TOKEN_R3?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET?: string;
   CLOUDFLARE_CASB_WEBHOOK_SECRET?: string;
@@ -46,8 +49,20 @@ export function cloudflareAccountId(env: Env): string {
   return firstConfigured(env.CLOUDFLARE_ACCOUNT_ID, env.SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID);
 }
 
-export function cloudflareApiToken(env: Env): string {
-  return firstConfigured(env.CLOUDFLARE_API_TOKEN, env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN);
+export type CloudflareReadCredentialClass = "r1" | "r2" | "r3";
+
+export function cloudflareApiToken(env: Env, credentialClass: CloudflareReadCredentialClass): string {
+  const classToken = credentialClass === "r1"
+    ? env.CLOUDFLARE_API_TOKEN_R1
+    : credentialClass === "r2"
+      ? env.CLOUDFLARE_API_TOKEN_R2
+      : env.CLOUDFLARE_API_TOKEN_R3;
+
+  return firstConfigured(
+    classToken,
+    env.CLOUDFLARE_API_TOKEN,
+    env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN,
+  );
 }
 
 export function cloudflareNotificationsWebhookSecret(env: Env): string {
