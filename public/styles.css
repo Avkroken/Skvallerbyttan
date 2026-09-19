@@ -260,6 +260,16 @@ select {
   border-radius: inherit;
   background: #486581;
 }
+.activity-level-1 { width: 10%; }
+.activity-level-2 { width: 20%; }
+.activity-level-3 { width: 30%; }
+.activity-level-4 { width: 40%; }
+.activity-level-5 { width: 50%; }
+.activity-level-6 { width: 60%; }
+.activity-level-7 { width: 70%; }
+.activity-level-8 { width: 80%; }
+.activity-level-9 { width: 90%; }
+.activity-level-10 { width: 100%; }
 .capability-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
