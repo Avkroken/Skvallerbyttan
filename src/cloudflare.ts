@@ -11,6 +11,30 @@ type CloudflareEnvelope<T> = {
 
 type UnknownRecord = Record<string, unknown>;
 
+export type CloudflareBudget = {
+  remaining: number | null;
+  resetAt: string | null;
+  retryAfterSeconds: number | null;
+  rateLimit: string | null;
+  policy: string | null;
+  throttled: boolean;
+  lastStatus: number | null;
+  lastError: string | null;
+  observedAt: string | null;
+};
+
+let budget: CloudflareBudget = {
+  remaining: null,
+  resetAt: null,
+  retryAfterSeconds: null,
+  rateLimit: null,
+  policy: null,
+  throttled: false,
+  lastStatus: null,
+  lastError: null,
+  observedAt: null,
+};
+
 export class CloudflareApiError extends Error {
   readonly status: number;
 
@@ -57,9 +81,34 @@ export function cloudflareApiConfigured(env: Env): boolean {
   return ACCOUNT_ID.test(accountId) && Boolean(env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN?.trim());
 }
 
-async function cloudflareGet<T>(env: Env, path: string): Promise<T> {
-  const { accountId, token } = credentials(env);
-  const response = await fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}${path}`, {
+function captureBudget(response: Response, error: string | null = null): void {
+  const rateLimit = response.headers.get("ratelimit");
+  const remainingMatch = rateLimit?.match(/(?:^|[;,])\\s*r=(\\d+)/i);
+  const resetMatch = rateLimit?.match(/(?:^|[;,])\\s*t=(\\d+)/i);
+  const retryAfter = Number(response.headers.get("retry-after"));
+  const resetSeconds = resetMatch ? Number(resetMatch[1]) : null;
+  budget = {
+    remaining: remainingMatch ? Number(remainingMatch[1]) : null,
+    resetAt: resetSeconds != null && Number.isFinite(resetSeconds)
+      ? new Date(Date.now() + resetSeconds * 1000).toISOString()
+      : null,
+    retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : null,
+    rateLimit,
+    policy: response.headers.get("ratelimit-policy"),
+    throttled: response.status === 429,
+    lastStatus: response.status,
+    lastError: error,
+    observedAt: new Date().toISOString(),
+  };
+}
+
+export function getCloudflareBudget(): CloudflareBudget {
+  return { ...budget };
+}
+
+async function cloudflareGetUrl<T>(env: Env, url: string): Promise<T> {
+  const { token } = credentials(env);
+  const response = await fetch(url, {
     method: "GET",
     headers: {
       Accept: "application/json",
@@ -71,18 +120,29 @@ async function cloudflareGet<T>(env: Env, path: string): Promise<T> {
   try {
     envelope = await response.json() as CloudflareEnvelope<T>;
   } catch {
+    captureBudget(response, "invalid-json");
     throw new CloudflareApiError("cloudflare returned invalid JSON", response.ok ? 502 : response.status);
   }
 
   if (!response.ok || envelope.success === false || envelope.result === undefined) {
     const firstError = envelope.errors?.find((error) => text(error.message));
-    throw new CloudflareApiError(
-      firstError?.message?.trim() || `cloudflare request failed (${response.status})`,
-      response.status || 502,
-    );
+    const message = firstError?.message?.trim() || `cloudflare request failed (${response.status})`;
+    captureBudget(response, message);
+    throw new CloudflareApiError(message, response.status || 502);
   }
 
+  captureBudget(response);
   return envelope.result;
+}
+
+async function cloudflareGet<T>(env: Env, path: string): Promise<T> {
+  const { accountId } = credentials(env);
+  return cloudflareGetUrl<T>(env, `${API_BASE}/accounts/${encodeURIComponent(accountId)}${path}`);
+}
+
+async function cloudflareRootGet<T>(env: Env, path: string): Promise<T> {
+  credentials(env);
+  return cloudflareGetUrl<T>(env, `${API_BASE}${path}`);
 }
 
 export async function getCloudflareNotificationHistory(env: Env): Promise<Record<string, unknown>> {
@@ -159,4 +219,130 @@ export async function getCloudflareCasbWebhooks(env: Env): Promise<Record<string
     }];
   });
   return { available: true, count: items.length, items };
+}
+
+
+export async function getCloudflareAccount(env: Env): Promise<Record<string, unknown>> {
+  const account = await cloudflareGet<UnknownRecord>(env, "");
+  return {
+    schemaVersion: 1,
+    available: true,
+    id: text(account.id),
+    name: text(account.name),
+    type: text(account.type),
+    createdOn: text(account.created_on),
+  };
+}
+
+export async function getCloudflareZones(env: Env): Promise<Record<string, unknown>> {
+  const { accountId } = credentials(env);
+  const rows = await cloudflareRootGet<unknown[]>(
+    env,
+    `/zones?account.id=${encodeURIComponent(accountId)}&per_page=50&order=name&direction=asc`,
+  );
+  const items = array(rows).flatMap((value) => {
+    const zone = record(value);
+    if (!zone) return [];
+    const plan = record(zone.plan);
+    return [{
+      id: text(zone.id),
+      name: text(zone.name),
+      status: text(zone.status),
+      type: text(zone.type),
+      paused: bool(zone.paused),
+      developmentMode: number(zone.development_mode),
+      plan: plan ? text(plan.name) : null,
+      createdOn: text(zone.created_on),
+      activatedOn: text(zone.activated_on),
+      modifiedOn: text(zone.modified_on),
+    }];
+  });
+  return { schemaVersion: 1, available: true, count: items.length, items };
+}
+
+export async function getCloudflareWorkers(env: Env): Promise<Record<string, unknown>> {
+  const rows = await cloudflareGet<unknown[]>(env, "/workers/scripts");
+  const items = array(rows).flatMap((value) => {
+    const worker = record(value);
+    if (!worker) return [];
+    const observability = record(worker.observability);
+    return [{
+      id: text(worker.id),
+      createdOn: text(worker.created_on),
+      modifiedOn: text(worker.modified_on),
+      compatibilityDate: text(worker.compatibility_date),
+      compatibilityFlags: array(worker.compatibility_flags).flatMap((flag) => text(flag) ? [text(flag)!] : []),
+      usageModel: text(worker.usage_model),
+      handlers: array(worker.handlers).flatMap((handler) => text(handler) ? [text(handler)!] : []),
+      observability: observability ? {
+        enabled: bool(observability.enabled),
+        headSamplingRate: number(observability.head_sampling_rate),
+      } : null,
+    }];
+  });
+  return { schemaVersion: 1, available: true, count: items.length, items };
+}
+
+export function normalizeCloudflareAuditLog(value: unknown): Record<string, unknown> | null {
+  const row = record(value);
+  if (!row) return null;
+  const action = record(row.action);
+  const actor = record(row.actor);
+  const resource = record(row.resource);
+  const zone = record(row.zone);
+  return {
+    id: text(row.id),
+    actor: actor ? {
+      id: text(actor.id),
+      type: text(actor.type),
+      context: text(actor.context),
+      email: text(actor.email),
+    } : null,
+    action: action ? {
+      type: text(action.type),
+      description: text(action.description),
+      result: text(action.result),
+    } : null,
+    resource: resource ? {
+      id: text(resource.id),
+      type: text(resource.type),
+      product: text(resource.product),
+    } : null,
+    zone: zone ? {
+      id: text(zone.id),
+      name: text(zone.name),
+    } : null,
+    occurredAt: action ? text(action.time) : null,
+  };
+}
+
+export async function getCloudflareAuditLogs(
+  env: Env,
+  requestedDays = 7,
+): Promise<Record<string, unknown>> {
+  const days = Math.min(30, Math.max(1, Math.trunc(Number.isFinite(requestedDays) ? requestedDays : 7)));
+  const before = new Date().toISOString();
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const rows = await cloudflareGet<unknown[]>(
+    env,
+    `/logs/audit?since=${encodeURIComponent(since)}&before=${encodeURIComponent(before)}&direction=desc&limit=200`,
+  );
+  const items = array(rows).flatMap((value) => {
+    const normalized = normalizeCloudflareAuditLog(value);
+    return normalized ? [normalized] : [];
+  });
+  return {
+    schemaVersion: 1,
+    available: true,
+    days,
+    period: { since, before },
+    count: items.length,
+    items,
+    coverage: {
+      source: "audit_log",
+      coverage: "partial",
+      periodComplete: false,
+      sampling: "first-page-up-to-200",
+    },
+  };
 }
