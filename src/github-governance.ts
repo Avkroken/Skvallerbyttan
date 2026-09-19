@@ -81,6 +81,7 @@ export type NormalizedActor = {
   type: string | null;
   name: string | null;
   slug: string | null;
+  bypassMode: string | null;
   resolved: boolean;
 };
 
@@ -91,12 +92,17 @@ type NormalizedActionsRule =
 
 export function normalizeActor(value: unknown): NormalizedActor {
   const item = record(value) ?? {};
+  const id = integer(item.actor_id) ?? integer(item.id);
+  const type = text(item.actor_type) ?? text(item.type);
+  const name = text(item.name);
+  const slug = text(item.slug);
   return {
-    id: integer(item.id),
-    type: text(item.type),
-    name: text(item.name),
-    slug: text(item.slug),
-    resolved: Boolean(item.resolved && (text(item.name) || text(item.slug))),
+    id,
+    type,
+    name,
+    slug,
+    bypassMode: text(item.bypass_mode) ?? text(item.bypassMode),
+    resolved: Boolean(item.resolved && (name || slug)),
   };
 }
 
