@@ -160,22 +160,22 @@ export function activityFromCloudflareAudit(
   const product = text(resource?.product)?.toLowerCase() || "";
   const resourceType = text(resource?.type);
   const lowerType = resourceType?.toLowerCase() || "";
-  const capability = product.includes("worker")
-    ? "cloudflare.avkroken.workers"
-    : product.includes("d1") || lowerType.includes("d1")
-      ? "cloudflare.avkroken.storage.d1"
-      : product.includes("kv") || lowerType.includes("kv")
-        ? "cloudflare.avkroken.storage.kv"
-        : product.includes("r2") || lowerType.includes("r2")
-          ? "cloudflare.avkroken.storage.r2"
-          : product.includes("access") || lowerType.includes("access")
-            ? "cloudflare.avkroken.zero_trust.access"
-            : product.includes("tunnel") || product.includes("connector") || lowerType.includes("tunnel")
-              ? "cloudflare.avkroken.zero_trust.tunnels"
-              : product.includes("gateway") || product.includes("zero")
-                ? "cloudflare.avkroken.zero_trust"
-                : product.includes("zone") || lowerType.includes("zone")
-                  ? "cloudflare.avkroken.zones"
+  const capability = product.includes("d1") || lowerType.includes("d1")
+    ? "cloudflare.avkroken.storage.d1"
+    : product.includes("kv") || lowerType.includes("kv")
+      ? "cloudflare.avkroken.storage.kv"
+      : product.includes("r2") || lowerType.includes("r2")
+        ? "cloudflare.avkroken.storage.r2"
+        : product.includes("access") || lowerType.includes("access")
+          ? "cloudflare.avkroken.zero_trust.access"
+          : product.includes("tunnel") || product.includes("connector") || lowerType.includes("tunnel")
+            ? "cloudflare.avkroken.zero_trust.tunnels"
+            : product.includes("gateway") || product.includes("zero")
+              ? "cloudflare.avkroken.zero_trust"
+              : product.includes("zone") || lowerType.includes("zone")
+                ? "cloudflare.avkroken.zones"
+                : product.includes("worker") || lowerType.includes("worker")
+                  ? "cloudflare.avkroken.workers"
                   : "cloudflare.avkroken.account";
   return {
     eventKey: `cloudflare:audit:${id}`,
