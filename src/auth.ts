@@ -1,4 +1,4 @@
-import type { Env } from "./env";
+import { resolveSecretValue, secretValueConfigured, type Env } from "./env";
 
 const CALLBACK_URL = "https://skvallerbyttan.denied.se/auth/github/callback";
 const GITHUB_API_VERSION = "2026-03-10";
@@ -94,10 +94,10 @@ function allowedIds(env: Env): Set<number> {
 
 export function authConfigured(env: Env): boolean {
   return Boolean(
-    env.SKVALLERBYTTAN_GAMNACKE_CLIENT_ID?.trim() &&
-    env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY &&
-    env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID?.trim() &&
-    env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET &&
+    env.GAMNACKEN_GITHUB_APP_CLIENT_ID?.trim() &&
+    secretValueConfigured(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY) &&
+    env.KROSA_MAJA_GITHUB_CLIENT_ID?.trim() &&
+    secretValueConfigured(env.KROSA_MAJA_CLIENT_SECRET) &&
     env.SKVALLERBYTTAN_SESSION_SECRET &&
     allowedIds(env).size > 0,
   );
@@ -183,7 +183,7 @@ export async function startGitHubLogin(env: Env): Promise<Response> {
   const verifier = randomBase64url(32);
   const challenge = base64url(await sha256(verifier));
   const authorize = new URL("https://github.com/login/oauth/authorize");
-  authorize.searchParams.set("client_id", env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID);
+  authorize.searchParams.set("client_id", env.KROSA_MAJA_GITHUB_CLIENT_ID);
   authorize.searchParams.set("redirect_uri", CALLBACK_URL);
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("scope", "read:user");
@@ -198,6 +198,8 @@ export async function startGitHubLogin(env: Env): Promise<Response> {
 }
 
 async function exchangeCode(env: Env, code: string, verifier: string): Promise<string> {
+  const clientSecret = await resolveSecretValue(env.KROSA_MAJA_CLIENT_SECRET);
+  if (!clientSecret) throw new Error("Krösa-Maja client secret is not configured");
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
@@ -207,8 +209,8 @@ async function exchangeCode(env: Env, code: string, verifier: string): Promise<s
       "User-Agent": USER_AGENT,
     },
     body: new URLSearchParams({
-      client_id: env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID,
-      client_secret: env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET,
+      client_id: env.KROSA_MAJA_GITHUB_CLIENT_ID,
+      client_secret: clientSecret,
       code,
       redirect_uri: CALLBACK_URL,
       code_verifier: verifier,
@@ -235,10 +237,12 @@ async function fetchGitHubUser(accessToken: string): Promise<GitHubUser> {
 }
 
 async function revokeGitHubToken(env: Env, accessToken: string): Promise<void> {
-  const credentials = btoa(`${env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID}:${env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_SECRET}`);
+  const clientSecret = await resolveSecretValue(env.KROSA_MAJA_CLIENT_SECRET);
+  if (!clientSecret) return;
+  const credentials = btoa(`${env.KROSA_MAJA_GITHUB_CLIENT_ID}:${clientSecret}`);
   try {
     await fetch(
-      `https://api.github.com/applications/${encodeURIComponent(env.SKVALLERBYTTAN_KROSA_MAJA_CLIENT_ID)}/token`,
+      `https://api.github.com/applications/${encodeURIComponent(env.KROSA_MAJA_GITHUB_CLIENT_ID)}/token`,
       {
         method: "DELETE",
         signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
