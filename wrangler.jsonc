@@ -20,6 +20,23 @@
     "SKVALLERBYTTAN_ALLOWED_GITHUB_IDS": "36226327",
     "SKVALLERBYTTAN_ORG": "Avkroken"
   },
+  "secrets_store_secrets": [
+    {
+      "binding": "CLOUDFLARE_API_TOKEN_R1",
+      "store_id": "293e79006fa649b8b182ef105a6b46d1",
+      "secret_name": "CLOUDFLARE_API_TOKEN_R1"
+    },
+    {
+      "binding": "CLOUDFLARE_API_TOKEN_R2",
+      "store_id": "293e79006fa649b8b182ef105a6b46d1",
+      "secret_name": "CLOUDFLARE_API_TOKEN_R2"
+    },
+    {
+      "binding": "CLOUDFLARE_API_TOKEN_R3",
+      "store_id": "293e79006fa649b8b182ef105a6b46d1",
+      "secret_name": "CLOUDFLARE_API_TOKEN_R3"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "STATS_DB",
