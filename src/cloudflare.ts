@@ -3,10 +3,26 @@ import type { Env } from "./env";
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
+type CloudflareResultInfo = {
+  count?: number;
+  page?: number;
+  per_page?: number;
+  total_count?: number;
+  total_pages?: number;
+  cursor?: string;
+};
+
 type CloudflareEnvelope<T> = {
   success?: boolean;
   result?: T;
+  result_info?: CloudflareResultInfo;
   errors?: Array<{ code?: number; message?: string }>;
+};
+
+type PagedResult<T> = {
+  items: T[];
+  truncated: boolean;
+  totalCount: number | null;
 };
 
 type UnknownRecord = Record<string, unknown>;
@@ -106,7 +122,7 @@ export function getCloudflareBudget(): CloudflareBudget {
   return { ...budget };
 }
 
-async function cloudflareGetUrl<T>(env: Env, url: string): Promise<T> {
+async function cloudflareEnvelopeUrl<T>(env: Env, url: string): Promise<CloudflareEnvelope<T>> {
   const { token } = credentials(env);
   const response = await fetch(url, {
     method: "GET",
@@ -132,7 +148,12 @@ async function cloudflareGetUrl<T>(env: Env, url: string): Promise<T> {
   }
 
   captureBudget(response);
-  return envelope.result;
+  return envelope;
+}
+
+async function cloudflareGetUrl<T>(env: Env, url: string): Promise<T> {
+  const envelope = await cloudflareEnvelopeUrl<T>(env, url);
+  return envelope.result as T;
 }
 
 async function cloudflareGet<T>(env: Env, path: string): Promise<T> {
@@ -143,6 +164,93 @@ async function cloudflareGet<T>(env: Env, path: string): Promise<T> {
 async function cloudflareRootGet<T>(env: Env, path: string): Promise<T> {
   credentials(env);
   return cloudflareGetUrl<T>(env, `${API_BASE}${path}`);
+}
+
+function pagePath(path: string, page: number): string {
+  return `${path}${path.includes("?") ? "&" : "?"}page=${page}`;
+}
+
+async function cloudflareListAll<T>(
+  env: Env,
+  path: string,
+  options: { root?: boolean; maxPages?: number } = {},
+): Promise<PagedResult<T>> {
+  const { accountId } = credentials(env);
+  const maxPages = Math.min(20, Math.max(1, options.maxPages ?? 10));
+  const items: T[] = [];
+  let totalCount: number | null = null;
+  let page = 1;
+  let hasMore = false;
+
+  while (page <= maxPages) {
+    const currentPath = pagePath(path, page);
+    const url = options.root
+      ? `${API_BASE}${currentPath}`
+      : `${API_BASE}/accounts/${encodeURIComponent(accountId)}${currentPath}`;
+    const envelope = await cloudflareEnvelopeUrl<T[]>(env, url);
+    const result = Array.isArray(envelope.result) ? envelope.result : [];
+    items.push(...result);
+
+    const info = envelope.result_info;
+    totalCount = typeof info?.total_count === "number" ? info.total_count : totalCount;
+    const totalPages = typeof info?.total_pages === "number"
+      ? info.total_pages
+      : typeof info?.total_count === "number" && typeof info?.per_page === "number" && info.per_page > 0
+        ? Math.ceil(info.total_count / info.per_page)
+        : null;
+
+    if (totalPages != null) {
+      hasMore = page < totalPages;
+    } else if (typeof info?.count === "number" && typeof info?.per_page === "number") {
+      hasMore = info.count >= info.per_page && info.per_page > 0;
+    } else {
+      hasMore = false;
+    }
+
+    if (!hasMore) break;
+    page += 1;
+  }
+
+  return {
+    items,
+    truncated: hasMore,
+    totalCount,
+  };
+}
+
+async function cloudflareR2BucketsAll(
+  env: Env,
+  maxPages = 10,
+): Promise<PagedResult<unknown>> {
+  const { accountId } = credentials(env);
+  const items: unknown[] = [];
+  let cursor: string | null = null;
+  let hasMore = false;
+  const seen = new Set<string>();
+
+  for (let page = 0; page < Math.min(20, Math.max(1, maxPages)); page += 1) {
+    const query = new URLSearchParams({ per_page: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const envelope = await cloudflareEnvelopeUrl<UnknownRecord>(
+      env,
+      `${API_BASE}/accounts/${encodeURIComponent(accountId)}/r2/buckets?${query}`,
+    );
+    items.push(...array(envelope.result?.buckets));
+    const nextCursor = text(envelope.result_info?.cursor);
+    hasMore = Boolean(nextCursor);
+    if (!nextCursor || seen.has(nextCursor)) {
+      hasMore = false;
+      break;
+    }
+    seen.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return {
+    items,
+    truncated: hasMore,
+    totalCount: null,
+  };
 }
 
 export async function getCloudflareNotificationHistory(env: Env): Promise<Record<string, unknown>> {
@@ -236,11 +344,12 @@ export async function getCloudflareAccount(env: Env): Promise<Record<string, unk
 
 export async function getCloudflareZones(env: Env): Promise<Record<string, unknown>> {
   const { accountId } = credentials(env);
-  const rows = await cloudflareRootGet<unknown[]>(
+  const page = await cloudflareListAll<unknown>(
     env,
     `/zones?account.id=${encodeURIComponent(accountId)}&per_page=50&order=name&direction=asc`,
+    { root: true },
   );
-  const items = array(rows).flatMap((value) => {
+  const items = page.items.flatMap((value) => {
     const zone = record(value);
     if (!zone) return [];
     const plan = record(zone.plan);
@@ -257,7 +366,14 @@ export async function getCloudflareZones(env: Env): Promise<Record<string, unkno
       modifiedOn: text(zone.modified_on),
     }];
   });
-  return { schemaVersion: 1, available: true, count: items.length, items };
+  return {
+    schemaVersion: 1,
+    available: true,
+    count: items.length,
+    totalCount: page.totalCount,
+    truncated: page.truncated,
+    items,
+  };
 }
 
 export async function getCloudflareWorkers(env: Env): Promise<Record<string, unknown>> {
@@ -349,8 +465,8 @@ export async function getCloudflareAuditLogs(
 
 
 export async function getCloudflareD1Databases(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/d1/database?per_page=100");
-  const items = array(rows).flatMap((value) => {
+  const page = await cloudflareListAll<unknown>(env, "/d1/database?per_page=100");
+  const items = page.items.flatMap((value) => {
     const database = record(value);
     if (!database) return [];
     return [{
@@ -361,12 +477,19 @@ export async function getCloudflareD1Databases(env: Env): Promise<Record<string,
       createdAt: text(database.created_at),
     }];
   });
-  return { schemaVersion: 1, available: true, count: items.length, items };
+  return {
+    schemaVersion: 1,
+    available: true,
+    count: items.length,
+    totalCount: page.totalCount,
+    truncated: page.truncated,
+    items,
+  };
 }
 
 export async function getCloudflareKvNamespaces(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/storage/kv/namespaces?per_page=100");
-  const items = array(rows).flatMap((value) => {
+  const page = await cloudflareListAll<unknown>(env, "/storage/kv/namespaces?per_page=100");
+  const items = page.items.flatMap((value) => {
     const namespace = record(value);
     if (!namespace) return [];
     return [{
@@ -375,12 +498,19 @@ export async function getCloudflareKvNamespaces(env: Env): Promise<Record<string
       supportsUrlEncoding: bool(namespace.supports_url_encoding),
     }];
   });
-  return { schemaVersion: 1, available: true, count: items.length, items };
+  return {
+    schemaVersion: 1,
+    available: true,
+    count: items.length,
+    totalCount: page.totalCount,
+    truncated: page.truncated,
+    items,
+  };
 }
 
 export async function getCloudflareR2Buckets(env: Env): Promise<Record<string, unknown>> {
-  const result = await cloudflareGet<UnknownRecord>(env, "/r2/buckets?per_page=100");
-  const items = array(result.buckets).flatMap((value) => {
+  const page = await cloudflareR2BucketsAll(env);
+  const items = page.items.flatMap((value) => {
     const bucket = record(value);
     if (!bucket) return [];
     return [{
@@ -391,12 +521,19 @@ export async function getCloudflareR2Buckets(env: Env): Promise<Record<string, u
       storageClass: text(bucket.storage_class),
     }];
   });
-  return { schemaVersion: 1, available: true, count: items.length, items };
+  return {
+    schemaVersion: 1,
+    available: true,
+    count: items.length,
+    totalCount: page.totalCount,
+    truncated: page.truncated,
+    items,
+  };
 }
 
 export async function getCloudflareAccessApplications(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/access/apps?per_page=100");
-  const items = array(rows).flatMap((value) => {
+  const page = await cloudflareListAll<unknown>(env, "/access/apps?per_page=100");
+  const items = page.items.flatMap((value) => {
     const application = record(value);
     if (!application) return [];
     const policies = array(application.policies).flatMap((policyValue) => {
@@ -421,15 +558,22 @@ export async function getCloudflareAccessApplications(env: Env): Promise<Record<
       updatedAt: text(application.updated_at),
     }];
   });
-  return { schemaVersion: 1, available: true, count: items.length, items };
+  return {
+    schemaVersion: 1,
+    available: true,
+    count: items.length,
+    totalCount: page.totalCount,
+    truncated: page.truncated,
+    items,
+  };
 }
 
 export async function getCloudflareTunnels(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(
+  const page = await cloudflareListAll<unknown>(
     env,
     "/tunnels?per_page=100&is_deleted=false",
   );
-  const items = array(rows).flatMap((value) => {
+  const items = page.items.flatMap((value) => {
     const tunnel = record(value);
     if (!tunnel) return [];
     return [{
@@ -443,5 +587,12 @@ export async function getCloudflareTunnels(env: Env): Promise<Record<string, unk
       deletedAt: text(tunnel.deleted_at),
     }];
   });
-  return { schemaVersion: 1, available: true, count: items.length, items };
+  return {
+    schemaVersion: 1,
+    available: true,
+    count: items.length,
+    totalCount: page.totalCount,
+    truncated: page.truncated,
+    items,
+  };
 }
