@@ -1,34 +1,36 @@
 # Skvallerbyttan
 
-Repositoryt underhålls av Avkroken.
+Skvallerbyttan är Avkrokens privata GitHub-dashboard för repositoryhälsa, säkerhet, leverans och statistik. Tjänsten körs som en Cloudflare Worker och använder GitHub Apps, GitHub OAuth och D1 för att samla och presentera operativa signaler utan att göra dashboarden publik.
 
-## GitHub webhook
+## Länkar
 
-Dashboardens cache är webhook-first. GitHub-aktivitet invaliderar bara berörd cache och nästa läsning uppdaterar den i bakgrunden. En full overview-reconciliation körs var sjätte timme som säkerhetsnät.
+- **Tjänst:** https://skvallerbyttan.denied.se
+- **Publik dokumentation:** https://avkroken.github.io/Skvallerbyttan/
+- **Dokumentationskälla:** [docs/](docs/)
+- **Säkerhetsrapportering:** [SECURITY.md](SECURITY.md)
 
-Organisationens webhook ska använda:
+## Teknik
 
-- URL: `https://skvallerbyttan.denied.se/webhooks/github`
-- Content type: `application/json`
-- Secret: samma värde som Worker-secreten `SKVALLERBYTTAN_WEBHOOK_SECRET`
-- SSL verification: på
+- TypeScript
+- Cloudflare Workers
+- Cloudflare D1
+- GitHub App för tjänstens GitHub API-åtkomst
+- GitHub OAuth via Krösa-Maja för användarinloggning
+- GitHub webhooks för cacheinvalidering och säkerhetshistorik
 
-Prenumerera på de events dashboarden faktiskt använder: `code_scanning_alert`, `dependabot_alert`, `deployment`, `deployment_status`, `fork`, `issues`, `pull_request`, `pull_request_review`, `push`, `release`, `repository`, `repository_ruleset`, `secret_scanning_alert`, `star` och `workflow_run`.
+Arkitektur, autentisering, webhookflöde, drift och aktuell repositorykontext finns i [projektdokumentationen](docs/index.md).
 
-Branch/tag creation och deletion behövs inte för dashboardens nuvarande statistik. `Repository vulnerability alerts`, `secret_scanning_alert_location` och `pull_request_review_comment` ska inte aktiveras förrän dashboarden faktiskt använder deras extra data.
+## Utveckling
 
-Webhook-signaturen verifieras med `X-Hub-Signature-256`, leveranser dedupliceras med `X-GitHub-Delivery`, och events från andra organisationer ignoreras.
+Installera låsta beroenden och kör hela verifieringen:
 
-Code scanning-, Dependabot- och secret scanning-events skrivs dessutom till en D1-ledger. Ledgern sparar bara metadata som event, repo, alertnummer, action, severity, paket/rule/secret-typ och resolution — aldrig själva hemligheten. Dashboarden använder den för 30-dagars säkerhetsaktivitet och börjar räkna från den första webhookhändelsen efter att migrationen har applicerats.
+```bash
+npm ci
+npm run check
+```
 
-## Issues
+`npm run check` kör tester, TypeScript-kontroll och en Wrangler dry-run. Deployment och ändringar av Cloudflare-resurser görs inte som en del av vanlig repositoryverifiering.
 
-Använd GitHub Issues för reproducerbara fel eller förbättringsförslag. Mallarna i `.github/ISSUE_TEMPLATE/` används för nya ärenden.
+## GitHub Pages
 
-## Säkerhet
-
-Rapportera inte sårbarheter eller hemligheter i publika issues. Följ [SECURITY.md](SECURITY.md) för privat rapportering.
-
-## Finansiering
-
-GitHub Sponsors-konfigurationen finns i `.github/FUNDING.yml`.
+Den publika projektdokumentationen byggs från `docs/` med GitHub Pages. Själva dashboarden fortsätter att köras på `skvallerbyttan.denied.se`; Pages är endast dokumentationsyta.
