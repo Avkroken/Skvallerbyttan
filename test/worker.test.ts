@@ -25,3 +25,17 @@ test("legacy webhook endpoint is gone instead of redirecting to login", async ()
     endpoint: "/webhooks/github",
   });
 });
+
+
+test("Cloudflare webhook endpoints stay outside dashboard login but fail closed when unconfigured", async () => {
+  for (const path of ["/webhooks/cloudflare/notifications", "/webhooks/cloudflare/casb"]) {
+    const response = await worker.fetch(
+      new Request(`https://skvallerbyttan.denied.se${path}`, { method: "POST" }),
+      {} as Env,
+      context(),
+    );
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("location"), null);
+    assert.deepEqual(await response.json(), { error: "webhook not configured" });
+  }
+});
