@@ -45,7 +45,7 @@ Navigationen är tangentbordsnavigerbar, deep-linkbar och data lazy-laddas per f
 - **Gamnacke:** GitHub App för provider-reads.
 - **Krösa-Maja:** OAuth login för människan.
 - **GitHub organization webhook:** canonical event-ingress för Activity, security ledger och cache invalidation.
-- **Avkroken portal signal:** docs-relevanta GitHub-events skickas internt via Cloudflare Service Binding `AVKROKEN_PORTAL_DOCS` till `avkroken-portal`/`DocsInvalidationService`; portalen behöver därmed ingen egen provider-webhook för detta.
+- **Avkroken portal signal:** docs-relevanta GitHub-events skickas internt via Cloudflare Service Binding `AVKROKEN_PORTAL_DOCS` till live Worker-tjänsten `avkroken`/`DocsInvalidationService`; portalen behöver därmed ingen egen provider-webhook för detta.
 
 GitHub REST API-version: `2026-03-10`.
 
@@ -75,7 +75,7 @@ För publik repositorydokumentation:
 
 1. GitHub levererar `push`/`repository` till Skvallerbyttan.
 2. Skvallerbyttan verifierar webhooksignaturen och organisationsgränsen.
-3. Relevanta docs-events signaleras till `avkroken-portal` genom den interna Service Bindingen `AVKROKEN_PORTAL_DOCS`.
+3. Relevanta docs-events signaleras till live Worker-tjänsten `avkroken` genom den interna Service Bindingen `AVKROKEN_PORTAL_DOCS`.
 4. Portalens `DocsInvalidationService` purgar endast `docs-catalog` och berörda `docs-repo-*` cache-tags.
 5. Activity/deduplication ligger fortsatt i Skvallerbyttan; portalen blir inte ett parallellt eventlager.
 
