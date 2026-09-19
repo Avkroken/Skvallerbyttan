@@ -48,11 +48,24 @@ GitHub-webhooken kräver:
 
 Signaturen verifieras med HMAC-SHA256 innan payloaden används. Delivery-ID dedupliceras och payloads från andra organisationer ignoreras.
 
+## Cloudflare webhookintegritet
+
+Cloudflare-integrationen återanvänder inte GitHubs webhook-secret.
+
+- **Cloudflare Notifications** kräver ett separat secret i `cf-webhook-auth` och jämför värdet innan payloaden tolkas.
+- **Cloudflare One CASB** använder den dokumenterade autentiseringsmetoden **Static Headers** med headern `x-skvallerbyttan-casb-auth` och ett separat Worker-secret.
+- CASB HMAC-Signing används inte i denna implementation eftersom Cloudflares publika dokumentation anger stöd och `signing_secret`, men inte ett verifierbart wire-format/signaturheader för mottagarsidan. Ingen signaturmodell gissas.
+- Leveranser dedupliceras innan eventmetadatan skrivs till D1.
+
+CASB-payloadens `metadata` och `data` lagras inte. Notifications-fältet `text` och alertspecificerad `data` lagras inte heller. Ledgern innehåller endast begränsad identifierande metadata som eventtyp, korrelations-/finding-ID, state, policy-ID och timestamps när de finns.
+
+Cloudflare API-tokenet används endast för GET-anrop. Den avsedda permissionmängden är `Notifications Read` och `Zero Trust Read`; inga write-permissions krävs av klienten.
+
 ## Secrets och D1
 
 Runtime-secrets deklareras som erforderliga i Wrangler-konfigurationen men deras faktiska värden ska endast finnas i den avsedda secret-store som används vid deployment. De ska inte skrivas till Git, issues, PR-kommentarer eller GitHub Pages.
 
-D1-ledgern för säkerhetshändelser lagrar metadata om alerts, inte själva upptäckta hemligheten.
+D1-ledgern för GitHub-säkerhetshändelser lagrar metadata om alerts, inte själva upptäckta hemligheten. Cloudflare-ledgern lagrar på motsvarande sätt endast normaliserad metadata och inte fulla webhookpayloads.
 
 ## Publik GitHub Pages-dokumentation
 
