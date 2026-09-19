@@ -203,14 +203,18 @@ async function cloudflareRead<T>(
         permissionState: denied ? "permission_denied" : "unknown",
         dataState: denied ? "unavailable" : unconfigured ? "not_configured" : "error",
         httpStatus: error.status,
-        error: error.message,
+        error: `cloudflare-http-${error.status}`,
       });
       return {
         schemaVersion: 1,
         available: false,
         status: denied ? "permission_denied" : unconfigured ? "not_configured" : "error",
         httpStatus: error.status,
-        reason: denied ? "Required read permission is not granted." : error.message,
+        reason: denied
+          ? "required_read_permission_not_granted"
+          : unconfigured
+            ? "cloudflare_api_not_configured"
+            : "cloudflare_provider_request_failed",
       };
     }
     await recordCapabilityObservation(env, capability, {
@@ -218,13 +222,13 @@ async function cloudflareRead<T>(
       permissionState: "unknown",
       dataState: "error",
       httpStatus: 0,
-      error: error instanceof Error ? error.message : String(error),
+      error: "cloudflare-provider-request-failed",
     });
     return {
       schemaVersion: 1,
       available: false,
       status: "error",
-      reason: error instanceof Error ? error.message : String(error),
+      reason: "cloudflare_provider_request_failed",
     };
   }
 }
