@@ -43,7 +43,7 @@ Alla API-responser använder privata/no-store cacheheaders.
 
 ## GitHub provider auth
 
-Gamnacken används som GitHub App. `GAMNACKEN_GITHUB_APP_PRIVATE_KEY` är en Worker secret och `GAMNACKEN_GITHUB_APP_CLIENT_ID` är icke-hemlig config. Worker skapar App-JWT och kortlivat installation token. Providerpermissions ska följa minsta möjliga read-nivå; se [Permissions]({{ '/permissions/' | relative_url }}).
+Gamnacken används som GitHub App. Den centrala secret-identiteten är `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`, men produktion återanvänder den redan provisionerade Worker-bindingen `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY` för samma nyckelvärde. `GAMNACKEN_GITHUB_APP_CLIENT_ID` är icke-hemlig config. Worker skapar App-JWT och kortlivat installation token. Providerpermissions ska följa minsta möjliga read-nivå; se [Permissions]({{ '/permissions/' | relative_url }}).
 
 ## Cloudflare provider auth
 
