@@ -1,11 +1,11 @@
-import { secretValueConfigured, type Env } from "./env";
+import { gamnackenPrivateKeyConfigured, type Env } from "./env";
 import { cloudflareApiConfigured, getCloudflareBudget } from "./cloudflare";
 import { getGitHubBudget } from "./github";
 
 function githubConfigured(env: Env): boolean {
   return Boolean(
     env.GAMNACKEN_GITHUB_APP_CLIENT_ID?.trim() &&
-    secretValueConfigured(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY),
+    gamnackenPrivateKeyConfigured(env),
   );
 }
 
