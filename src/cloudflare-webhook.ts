@@ -1,6 +1,10 @@
 import type { Env } from "./env";
 import { recordCloudflareEvent, type CloudflareEventRecord } from "./cloudflare-events";
 import {
+  activityFromCloudflareWebhook,
+  recordObservedActivity,
+} from "./activity";
+import {
   invalidateSourceCache,
   recordWebhookDelivery,
   sourceCacheConfigured,
@@ -139,6 +143,7 @@ export async function handleCloudflareNotificationsWebhook(request: Request, env
   if (!isNew) return response({ ok: true, duplicate: true }, 202);
 
   await recordCloudflareEvent(env, event);
+  await recordObservedActivity(env, activityFromCloudflareWebhook(event));
   await invalidateSourceCache(
     env,
     ["cloudflare:notifications:history"],
@@ -177,5 +182,6 @@ export async function handleCloudflareCasbWebhook(request: Request, env: Env): P
   if (!isNew) return response({ ok: true, duplicate: true }, 202);
 
   await recordCloudflareEvent(env, event);
+  await recordObservedActivity(env, activityFromCloudflareWebhook(event));
   return response({ ok: true, source: event.source, eventType: event.eventType }, 202);
 }
