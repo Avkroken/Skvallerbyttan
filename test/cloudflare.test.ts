@@ -4,12 +4,20 @@ import {
   cloudflareApiConfigured,
   getCloudflareCasbWebhooks,
   getCloudflareNotificationWebhooks,
+  getCloudflareZones,
 } from "../src/cloudflare";
 import type { Env } from "../src/env";
 
 const env = {
   CLOUDFLARE_ACCOUNT_ID: "account123",
   CLOUDFLARE_API_TOKEN: "token",
+} as Env;
+
+const classedEnv = {
+  CLOUDFLARE_ACCOUNT_ID: "account123",
+  CLOUDFLARE_API_TOKEN_R1: "token-r1",
+  CLOUDFLARE_API_TOKEN_R2: "token-r2",
+  CLOUDFLARE_API_TOKEN_R3: "token-r3",
 } as Env;
 
 test("Cloudflare API configuration requires both account id and token", () => {
@@ -24,11 +32,31 @@ test("legacy Skvallerbyttan Cloudflare names remain a migration fallback", () =>
   } as Env), true);
 });
 
+test("R1 is used for platform resource reads", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input).startsWith("https://api.cloudflare.com/client/v4/zones?"), true);
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token-r1");
+    return new Response(JSON.stringify({
+      success: true,
+      result: [],
+      result_info: { count: 0, page: 1, per_page: 50, total_count: 0, total_pages: 0 },
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const result = await getCloudflareZones(classedEnv);
+    assert.equal(result.available, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("canonical Cloudflare names take precedence over migration aliases", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input), "https://api.cloudflare.com/client/v4/accounts/canonical-account");
-    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer canonical-token");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer r2-token");
     return new Response(JSON.stringify({
       success: true,
       result: { id: "canonical-account", name: "Avkroken" },
@@ -38,6 +66,7 @@ test("canonical Cloudflare names take precedence over migration aliases", async 
   try {
     const configured = {
       CLOUDFLARE_ACCOUNT_ID: "canonical-account",
+      CLOUDFLARE_API_TOKEN_R2: "r2-token",
       CLOUDFLARE_API_TOKEN: "canonical-token",
       SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "legacy-account",
       SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "legacy-token",
@@ -53,7 +82,7 @@ test("notification webhook reads redact destination URLs", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input), "https://api.cloudflare.com/client/v4/accounts/account123/alerting/v3/destinations/webhooks");
-    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token-r2");
     return new Response(JSON.stringify({
       success: true,
       result: [{
@@ -69,7 +98,7 @@ test("notification webhook reads redact destination URLs", async () => {
   };
 
   try {
-    const result = await getCloudflareNotificationWebhooks(env);
+    const result = await getCloudflareNotificationWebhooks(classedEnv);
     assert.deepEqual(result, {
       available: true,
       count: 1,
@@ -90,7 +119,9 @@ test("notification webhook reads redact destination URLs", async () => {
 
 test("CASB webhook reads expose header names but redact destination and values", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({
+  globalThis.fetch = async (_input, init) => {
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token-r3");
+    return new Response(JSON.stringify({
     success: true,
     result: [{
       id: "casb-hook",
@@ -104,9 +135,10 @@ test("CASB webhook reads expose header names but redact destination and values",
       headers: [{ key: "x-skvallerbyttan-casb-auth", value: "redacted-by-cloudflare" }],
     }],
   }), { headers: { "content-type": "application/json" } });
+  };
 
   try {
-    const result = await getCloudflareCasbWebhooks(env);
+    const result = await getCloudflareCasbWebhooks(classedEnv);
     assert.deepEqual(result, {
       available: true,
       count: 1,
