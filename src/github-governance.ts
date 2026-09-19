@@ -84,6 +84,11 @@ export type NormalizedActor = {
   resolved: boolean;
 };
 
+type NormalizedActionsRule =
+  | { type: "restrict_action_events"; allowedEvents: string[] }
+  | { type: "restrict_actions_actors"; allowedActors: NormalizedActor[] }
+  | { type: string; parameters: unknown };
+
 export function normalizeActor(value: unknown): NormalizedActor {
   const item = record(value) ?? {};
   return {
@@ -99,24 +104,27 @@ export function normalizeActionsPolicy(value: unknown): Record<string, unknown> 
   const policy = record(value) ?? {};
   const conditions = record(policy.conditions) ?? {};
   const workflowPath = record(conditions.workflow_path);
-  const rules = array(policy.rules).flatMap((ruleValue) => {
+  const rules: NormalizedActionsRule[] = [];
+  for (const ruleValue of array(policy.rules)) {
     const rule = record(ruleValue);
-    if (!rule) return [];
+    if (!rule) continue;
     const parameters = record(rule.parameters) ?? {};
     if (rule.type === "restrict_action_events") {
-      return [{
+      rules.push({
         type: "restrict_action_events",
         allowedEvents: array(parameters.allowed_events).flatMap((item) => text(item) ? [text(item)!] : []),
-      }];
+      });
+      continue;
     }
     if (rule.type === "restrict_actions_actors") {
-      return [{
+      rules.push({
         type: "restrict_actions_actors",
         allowedActors: array(parameters.allowed_actors).map(normalizeActor),
-      }];
+      });
+      continue;
     }
-    return [{ type: text(rule.type) ?? "unknown", parameters: safeObject(parameters) }];
-  });
+    rules.push({ type: text(rule.type) ?? "unknown", parameters: safeObject(parameters) });
+  }
 
   return {
     id: integer(policy.id),
