@@ -71,7 +71,7 @@
   "services": [
     {
       "binding": "AVKROKEN_PORTAL_DOCS",
-      "service": "avkroken-portal",
+      "service": "avkroken",
       "entrypoint": "DocsInvalidationService"
     }
   ],
