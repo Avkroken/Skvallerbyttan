@@ -1,4 +1,9 @@
-import { cloudflareAccountId, cloudflareApiToken, type Env } from "./env";
+import {
+  cloudflareAccountId,
+  cloudflareApiToken,
+  type CloudflareReadCredentialClass,
+  type Env,
+} from "./env";
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -83,18 +88,24 @@ function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function credentials(env: Env): { accountId: string; token: string } {
+function credentials(
+  env: Env,
+  credentialClass: CloudflareReadCredentialClass,
+): { accountId: string; token: string } {
   const accountId = cloudflareAccountId(env);
-  const token = cloudflareApiToken(env);
+  const token = cloudflareApiToken(env, credentialClass);
   if (!ACCOUNT_ID.test(accountId) || !token) {
-    throw new CloudflareApiError("cloudflare integration not configured", 503);
+    throw new CloudflareApiError(`cloudflare ${credentialClass} integration not configured`, 503);
   }
   return { accountId, token };
 }
 
 export function cloudflareApiConfigured(env: Env): boolean {
   const accountId = cloudflareAccountId(env);
-  return ACCOUNT_ID.test(accountId) && Boolean(cloudflareApiToken(env));
+  return ACCOUNT_ID.test(accountId)
+    && (Boolean(cloudflareApiToken(env, "r1"))
+      || Boolean(cloudflareApiToken(env, "r2"))
+      || Boolean(cloudflareApiToken(env, "r3")));
 }
 
 function captureBudget(response: Response, error: string | null = null): void {
@@ -122,8 +133,12 @@ export function getCloudflareBudget(): CloudflareBudget {
   return { ...budget };
 }
 
-async function cloudflareEnvelopeUrl<T>(env: Env, url: string): Promise<CloudflareEnvelope<T>> {
-  const { token } = credentials(env);
+async function cloudflareEnvelopeUrl<T>(
+  env: Env,
+  url: string,
+  credentialClass: CloudflareReadCredentialClass,
+): Promise<CloudflareEnvelope<T>> {
+  const { token } = credentials(env, credentialClass);
   const response = await fetch(url, {
     method: "GET",
     headers: {
@@ -151,14 +166,26 @@ async function cloudflareEnvelopeUrl<T>(env: Env, url: string): Promise<Cloudfla
   return envelope;
 }
 
-async function cloudflareGetUrl<T>(env: Env, url: string): Promise<T> {
-  const envelope = await cloudflareEnvelopeUrl<T>(env, url);
+async function cloudflareGetUrl<T>(
+  env: Env,
+  url: string,
+  credentialClass: CloudflareReadCredentialClass,
+): Promise<T> {
+  const envelope = await cloudflareEnvelopeUrl<T>(env, url, credentialClass);
   return envelope.result as T;
 }
 
-async function cloudflareGet<T>(env: Env, path: string): Promise<T> {
-  const { accountId } = credentials(env);
-  return cloudflareGetUrl<T>(env, `${API_BASE}/accounts/${encodeURIComponent(accountId)}${path}`);
+async function cloudflareGet<T>(
+  env: Env,
+  path: string,
+  credentialClass: CloudflareReadCredentialClass,
+): Promise<T> {
+  const { accountId } = credentials(env, credentialClass);
+  return cloudflareGetUrl<T>(
+    env,
+    `${API_BASE}/accounts/${encodeURIComponent(accountId)}${path}`,
+    credentialClass,
+  );
 }
 
 function pagePath(path: string, page: number): string {
@@ -168,9 +195,13 @@ function pagePath(path: string, page: number): string {
 async function cloudflareListAll<T>(
   env: Env,
   path: string,
-  options: { root?: boolean; maxPages?: number } = {},
+  options: {
+    credentialClass: CloudflareReadCredentialClass;
+    root?: boolean;
+    maxPages?: number;
+  },
 ): Promise<PagedResult<T>> {
-  const { accountId } = credentials(env);
+  const { accountId } = credentials(env, options.credentialClass);
   const maxPages = Math.min(20, Math.max(1, options.maxPages ?? 10));
   const items: T[] = [];
   let totalCount: number | null = null;
@@ -182,7 +213,7 @@ async function cloudflareListAll<T>(
     const url = options.root
       ? `${API_BASE}${currentPath}`
       : `${API_BASE}/accounts/${encodeURIComponent(accountId)}${currentPath}`;
-    const envelope = await cloudflareEnvelopeUrl<T[]>(env, url);
+    const envelope = await cloudflareEnvelopeUrl<T[]>(env, url, options.credentialClass);
     const result = Array.isArray(envelope.result) ? envelope.result : [];
     items.push(...result);
 
@@ -217,7 +248,7 @@ async function cloudflareR2BucketsAll(
   env: Env,
   maxPages = 10,
 ): Promise<PagedResult<unknown>> {
-  const { accountId } = credentials(env);
+  const { accountId } = credentials(env, "r1");
   const items: unknown[] = [];
   let cursor: string | null = null;
   let hasMore = false;
@@ -229,6 +260,7 @@ async function cloudflareR2BucketsAll(
     const envelope = await cloudflareEnvelopeUrl<UnknownRecord>(
       env,
       `${API_BASE}/accounts/${encodeURIComponent(accountId)}/r2/buckets?${query}`,
+      "r1",
     );
     items.push(...array(envelope.result?.buckets));
     const nextCursor = text(envelope.result_info?.cursor);
@@ -249,7 +281,7 @@ async function cloudflareR2BucketsAll(
 }
 
 export async function getCloudflareNotificationHistory(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/alerting/v3/history?per_page=100");
+  const rows = await cloudflareGet<unknown[]>(env, "/alerting/v3/history?per_page=100", "r2");
   const items = array(rows).flatMap((value) => {
     const row = record(value);
     if (!row) return [];
@@ -267,7 +299,7 @@ export async function getCloudflareNotificationHistory(env: Env): Promise<Record
 }
 
 export async function getCloudflareNotificationPolicies(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/alerting/v3/policies");
+  const rows = await cloudflareGet<unknown[]>(env, "/alerting/v3/policies", "r2");
   const items = array(rows).flatMap((value) => {
     const row = record(value);
     if (!row) return [];
@@ -284,7 +316,7 @@ export async function getCloudflareNotificationPolicies(env: Env): Promise<Recor
 }
 
 export async function getCloudflareNotificationWebhooks(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/alerting/v3/destinations/webhooks");
+  const rows = await cloudflareGet<unknown[]>(env, "/alerting/v3/destinations/webhooks", "r2");
   const items = array(rows).flatMap((value) => {
     const row = record(value);
     if (!row) return [];
@@ -301,7 +333,7 @@ export async function getCloudflareNotificationWebhooks(env: Env): Promise<Recor
 }
 
 export async function getCloudflareCasbWebhooks(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/data-security/posture/webhooks");
+  const rows = await cloudflareGet<unknown[]>(env, "/data-security/posture/webhooks", "r3");
   const items = array(rows).flatMap((value) => {
     const row = record(value);
     if (!row) return [];
@@ -326,7 +358,7 @@ export async function getCloudflareCasbWebhooks(env: Env): Promise<Record<string
 
 
 export async function getCloudflareAccount(env: Env): Promise<Record<string, unknown>> {
-  const account = await cloudflareGet<UnknownRecord>(env, "");
+  const account = await cloudflareGet<UnknownRecord>(env, "", "r2");
   return {
     schemaVersion: 1,
     available: true,
@@ -338,11 +370,11 @@ export async function getCloudflareAccount(env: Env): Promise<Record<string, unk
 }
 
 export async function getCloudflareZones(env: Env): Promise<Record<string, unknown>> {
-  const { accountId } = credentials(env);
+  const { accountId } = credentials(env, "r1");
   const page = await cloudflareListAll<unknown>(
     env,
     `/zones?account.id=${encodeURIComponent(accountId)}&per_page=50&order=name&direction=asc`,
-    { root: true },
+    { root: true, credentialClass: "r1" },
   );
   const items = page.items.flatMap((value) => {
     const zone = record(value);
@@ -372,7 +404,7 @@ export async function getCloudflareZones(env: Env): Promise<Record<string, unkno
 }
 
 export async function getCloudflareWorkers(env: Env): Promise<Record<string, unknown>> {
-  const rows = await cloudflareGet<unknown[]>(env, "/workers/scripts");
+  const rows = await cloudflareGet<unknown[]>(env, "/workers/scripts", "r1");
   const items = array(rows).flatMap((value) => {
     const worker = record(value);
     if (!worker) return [];
@@ -437,6 +469,7 @@ export async function getCloudflareAuditLogs(
   const rows = await cloudflareGet<unknown[]>(
     env,
     `/logs/audit?since=${encodeURIComponent(since)}&before=${encodeURIComponent(before)}&direction=desc&limit=200`,
+    "r2",
   );
   const items = array(rows).flatMap((value) => {
     const normalized = normalizeCloudflareAuditLog(value);
@@ -460,7 +493,7 @@ export async function getCloudflareAuditLogs(
 
 
 export async function getCloudflareD1Databases(env: Env): Promise<Record<string, unknown>> {
-  const page = await cloudflareListAll<unknown>(env, "/d1/database?per_page=100");
+  const page = await cloudflareListAll<unknown>(env, "/d1/database?per_page=100", { credentialClass: "r1" });
   const items = page.items.flatMap((value) => {
     const database = record(value);
     if (!database) return [];
@@ -483,7 +516,7 @@ export async function getCloudflareD1Databases(env: Env): Promise<Record<string,
 }
 
 export async function getCloudflareKvNamespaces(env: Env): Promise<Record<string, unknown>> {
-  const page = await cloudflareListAll<unknown>(env, "/storage/kv/namespaces?per_page=100");
+  const page = await cloudflareListAll<unknown>(env, "/storage/kv/namespaces?per_page=100", { credentialClass: "r1" });
   const items = page.items.flatMap((value) => {
     const namespace = record(value);
     if (!namespace) return [];
@@ -527,7 +560,7 @@ export async function getCloudflareR2Buckets(env: Env): Promise<Record<string, u
 }
 
 export async function getCloudflareAccessApplications(env: Env): Promise<Record<string, unknown>> {
-  const page = await cloudflareListAll<unknown>(env, "/access/apps?per_page=100");
+  const page = await cloudflareListAll<unknown>(env, "/access/apps?per_page=100", { credentialClass: "r3" });
   const items = page.items.flatMap((value) => {
     const application = record(value);
     if (!application) return [];
@@ -567,6 +600,7 @@ export async function getCloudflareTunnels(env: Env): Promise<Record<string, unk
   const page = await cloudflareListAll<unknown>(
     env,
     "/tunnels?per_page=100&is_deleted=false",
+    { credentialClass: "r3" },
   );
   const items = page.items.flatMap((value) => {
     const tunnel = record(value);

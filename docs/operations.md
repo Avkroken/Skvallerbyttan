@@ -31,36 +31,47 @@ Wrangler definierar:
 - cron `0 */6 * * *`
 - custom domain `skvallerbyttan.denied.se`
 
-Nya runtime-secrets för observationslagret:
+Runtime använder:
 
-- `SKVALLERBYTTAN_READ_API_TOKEN` — machine read API; optional tills machine access aktiveras
-- Avkrokens befintliga `CLOUDFLARE_ACCOUNT_ID`
-- Avkrokens befintliga read-only `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN_R1` — Platform / Resource Read
+- `CLOUDFLARE_API_TOKEN_R2` — Analytics / Observability / Operations Read
+- `CLOUDFLARE_API_TOKEN_R3` — Security / Identity Read
 - `CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET`
 - `CLOUDFLARE_CASB_WEBHOOK_SECRET`
+- `SKVALLERBYTTAN_READ_API_TOKEN` — valfri machine read API
 
-De fyra `CLOUDFLARE_*`-namnen är canonical både i Avkrokens GitHub organization secrets och i Worker-runtime. De äldre `SKVALLERBYTTAN_CLOUDFLARE_*`-namnen finns endast som tillfälliga kodalias under migreringen och ska inte nyprovisioneras.
+Under credentialmigreringen stöder koden det äldre `CLOUDFLARE_API_TOKEN` och `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` som fallback. Nya providerreads ska använda R1/R2/R3.
 
-Om machine API ska aktiveras är `SKVALLERBYTTAN_READ_API_TOKEN` canonical med samma namn som GitHub organization secret och Worker secret. Secret-syncen tar med den om org-secretet finns, men failar inte om machine access ännu inte är provisionerad.
+GitHub Actions som muterar Cloudflare använder `CLOUDFLARE_API_TOKEN_W1`. Workflows behåller fallback till det äldre generiska tokenet tills W1 är provisionerat. W1 ska inte synkas till Worker-runtime som observationscredential.
 
-### Secret ownership och rotation
+### Runtime secret-sync
 
-GitHub organization secrets är canonical källa för de befintliga Cloudflare-credentialsen. Ett dolt org-secret ska inte roteras enbart för att någon behöver kopiera värdet till Cloudflare.
+`.github/workflows/sync-cloudflare-runtime-secrets.yml` är endast `workflow_dispatch` och delar concurrency-grupp med produktionsdeploy.
 
-`.github/workflows/sync-cloudflare-runtime-secrets.yml` är den explicita transportvägen. Den läser de befintliga org-secretsen och synkar dem till Worker-runtime utan att operatören behöver se eller kopiera värdena.
+Workflowen:
 
-Secret-sync återanvänder det befintliga `CLOUDFLARE_API_TOKEN`. När sync eller annan explicit Wrangler-drift kräver högre Cloudflare-behörighet höjs behörigheten temporärt på samma token, jobbet körs och verifieras, och tokenets behörighet sänks därefter tillbaka till den normala read-only-nivån. Ingen extra transporttoken och inget extra org-secret skapas.
+1. använder W1, eller legacy-token under migrationen, för Wrangler-operationen,
+2. accepterar antingen hela uppsättningen R1/R2/R3 eller legacy-token för provider-runtime,
+3. vägrar en partiell R1/R2/R3-provisionering,
+4. synkar webhook-secrets och valfri machine API-token,
+5. verifierar runtime secret names efter sync.
 
-Secret-sync är endast `workflow_dispatch`. Det är avsiktligt: `wrangler secret bulk` skapar en ny Worker-version och deployar den direkt, så sync är en explicit produktionsåtgärd och inte en PR-gate eller vanlig merge-side-effect. Secret-sync och ordinarie produktionsdeploy delar concurrency-gruppen `skvallerbyttan-production`, så de kan inte mutera produktionen parallellt.
+Webhook-secret för Notifications och CASB måste vara separata.
 
-Rotations-/syncflödet är därför:
+Cloudflare Secrets Store är målbild för delade Worker-runtimecredentials enligt den centrala credentialstandarden. Nuvarande workflow använder fortfarande Worker secrets; flytt till Secrets Store är en separat drift-/bindingsmigration och ska inte blandas ihop med API-tokenrotation.
 
-1. höj vid behov behörigheten temporärt på befintligt `CLOUDFLARE_API_TOKEN`,
-2. kör **Sync Cloudflare runtime secrets**,
-3. verifiera workflowets secret-list och Skvallerbyttans provider health/capabilities,
-4. sänk tokenets behörighet tillbaka till read-only.
+### Rotation
 
-Webhook-secret för Notifications och CASB måste vara separata. Workflowet failar stängt om de är samma värde.
+Permissionsändring och secretrotation är separata operationer.
+
+För en etablerad klass:
+
+1. rolla endast den aktuella Cloudflare-tokenen,
+2. uppdatera motsvarande centrala credentialvärde,
+3. synka berörda runtime-bindings/secrets,
+4. verifiera provider capabilities,
+5. revokera eller ta bort gamla migreringscredentials först när de inte längre används.
 
 ## Migrationer
 
@@ -149,15 +160,11 @@ Insyn visar denna senaste observerade budgetstate. Avsaknad av tidigare anrop ä
 3. `npm run deploy`
 4. `npm run verify:production` mot `/health` och `/ready`
 
+Workflowen använder W1 genom `CLOUDFLARE_API_TOKEN_W1` när credentialen är provisionerad. Under migrationen finns fallback till det äldre `CLOUDFLARE_API_TOKEN`.
+
+W1 behöver täcka de operationer deployen faktiskt utför: Worker deployment/routes samt D1 Write när remote migration körs. W1 distribueras inte till observationsruntime som providercredential.
+
 `0005_observations.sql` använder `CREATE TABLE/INDEX IF NOT EXISTS` och är därför avsiktligt idempotent för denna driftväg.
-
-För en full körning med migration behöver det befintliga `CLOUDFLARE_API_TOKEN` temporärt kunna:
-
-- deploya befintlig Worker: Workers/Worker **Editor** / motsvarande Workers Scripts Write,
-- skriva D1-schema: **D1 Edit**,
-- uppdatera Worker Custom Domain vid behov: **Workers Routes Write** för berörd zon.
-
-När migration inte ska köras behövs inte D1 Edit för själva deploysteget. Tokenets normala observationsrättigheter ska återställas till read-only efter verifierad drift. Ingen separat deploy-token ska skapas enbart för detta jobb.
 
 ## Deploymentgräns
 
