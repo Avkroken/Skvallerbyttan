@@ -54,7 +54,11 @@ function section<T>(result: OptionalResult<T> | ListResult<T>): Record<string, u
       status: result.status === 401 || result.status === 403 ? "permission_denied" : result.status === 0 ? "error" : "unknown",
       available: false,
       httpStatus: result.status,
-      reason: result.reason,
+      reason: result.status === 401 || result.status === 403
+        ? "required_read_permission_not_granted"
+        : result.status === 0
+          ? "github_provider_request_failed"
+          : `github_http_${result.status}`,
     };
   }
   return {
@@ -73,7 +77,7 @@ async function observeResult<T>(
 ): Promise<void> {
   await recordCapabilityObservation(env, capability, result.available
     ? { status: "available", permissionState: "granted", dataState: "available", httpStatus: result.status }
-    : { httpStatus: result.status, error: result.reason });
+    : { httpStatus: result.status, error: `github-http-${result.status}` });
 }
 
 export type NormalizedActor = {
