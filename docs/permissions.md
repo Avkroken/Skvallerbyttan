@@ -51,4 +51,4 @@ Analytics Engine SQL använder POST som transport men operationen är read-only 
 
 R1, R2 och R3 är separata credentialklasser. Högre klass är mer känslig men innehåller inte lägre klasser. Skvallerbyttan väljer credential per endpoint och får inte falla tillbaka till W1/O1 vid permission denied.
 
-R1/R2/R3 bindas från Cloudflare Secrets Store. Det äldre generiska Cloudflare-tokenet finns endast som kodfallback när en klassbinding saknas, exempelvis under lokal utveckling eller migration. När Secrets Store-bindningarna är deployade ska capability state verifieras mot faktiska provideranrop innan äldre Worker-secret revokeras.
+R1/R2/R3 bindas från Cloudflare Secrets Store och varje bundet secret ska ha `workers` i sin scope-lista. Det finns ingen generisk Cloudflare-tokenfallback i runtime. Capability state ska verifieras mot faktiska provideranrop innan äldre appunika credentials revokeras.
