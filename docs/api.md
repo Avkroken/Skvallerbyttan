@@ -45,6 +45,7 @@ Repository effective policy innehåller:
 - Custom Property values
 - effective security configuration när provider/API/permission tillåter det
 - provenance och explicit unknown/not-exposed relationer
+- `bypassActorsState`, så provider-utlämnad bypassdata skiljs från en verifierat tom lista
 
 ### Cloudflare
 
