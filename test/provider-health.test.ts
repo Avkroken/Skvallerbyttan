@@ -6,7 +6,7 @@ import { getProviderHealth } from "../src/provider-health";
 test("provider health does not claim unobserved credentials are live", () => {
   const state = getProviderHealth({
     GAMNACKEN_GITHUB_APP_CLIENT_ID: "app",
-    GAMNACKEN_GITHUB_APP_PRIVATE_KEY: "key",
+    SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY: "key",
     CLOUDFLARE_ACCOUNT_ID: "account",
     CLOUDFLARE_API_TOKEN_R1: "token",
   } as Env) as any;
