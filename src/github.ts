@@ -1,5 +1,4 @@
-import type { Env } from "./env";
-import { organization } from "./env";
+import { organization, resolveSecretValue, type Env } from "./env";
 
 const API_VERSION = "2026-03-10";
 const USER_AGENT = "Avkroken-Skvallerbyttan-dashboard";
@@ -97,12 +96,14 @@ async function appJwt(env: Env): Promise<string> {
   const payload = base64url(JSON.stringify({
     iat: now - 60,
     exp: now + 540,
-    iss: env.SKVALLERBYTTAN_GAMNACKE_CLIENT_ID,
+    iss: env.GAMNACKEN_GITHUB_APP_CLIENT_ID,
   }));
   const unsigned = `${header}.${payload}`;
+  const privateKey = await resolveSecretValue(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY);
+  if (!privateKey) throw new Error("Gamnacken GitHub App private key is not configured");
   const key = await crypto.subtle.importKey(
     "pkcs8",
-    pemPkcs8Bytes(env.SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY),
+    pemPkcs8Bytes(privateKey),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"],
