@@ -8,7 +8,7 @@ permalink: /project-context/
 
 Det här dokumentet beskriver repositoryts aktuella tekniska state och ska uppdateras när arkitektur, GitHub-policy, deploymentmodell eller integrationsgränser ändras.
 
-**Senast verifierad:** 2026-09-18
+**Senast verifierad:** 2026-09-19
 
 ## Auktoritet och läsordning
 
@@ -31,7 +31,7 @@ Agentdrivna ändringar följer Avkrokens centrala arbetsgrensformat och går via
 
 ## Syfte
 
-Skvallerbyttan är en privat GitHub-dashboard för Avkroken. Den sammanställer repositoryhälsa, säkerhetsalerts, Actions-data, pull requests, issues, deployments, historik och andra GitHub-signaler för att ge en operativ överblick.
+Skvallerbyttan är en privat operativ dashboard för Avkroken. Den sammanställer repositoryhälsa, säkerhetsalerts, Actions-data, pull requests, issues, deployments och historik från GitHub samt read-only Notifications-/CASB-state och webhookhändelser från Cloudflare.
 
 Dashboarden är privat även om repositoryt och projektdokumentationen är publika.
 
@@ -78,6 +78,8 @@ OAuth-tokenet lagras inte av Skvallerbyttan och koden försöker återkalla det 
 
 Den lokala sessionen är HMAC-signerad, lagras i en `__Host-`-cookie och har högst tolv timmars livslängd.
 
+Cloudflare använder en tredje separat tjänsteidentitet: ett API-token med read-only permissions `Notifications Read` och `Zero Trust Read`. Webhookautentisering använder två egna secrets som inte återanvänds mellan Notifications, CASB eller GitHub.
+
 ## Data och cache
 
 D1 används för:
@@ -85,9 +87,10 @@ D1 används för:
 - organisations- och repositorysnapshots,
 - source/API-cache,
 - webhook-delivery-deduplicering,
-- säkerhetshändelser.
+- säkerhetshändelser,
+- normaliserade Cloudflare Notifications-/CASB-events.
 
-Source-cache-TTL är sex timmar. Webhooks invaliderar berörd cache och nästa läsning kan trigga bakgrundsuppdatering. En cron-driven reconciliation körs var sjätte timme.
+GitHub source-cache-TTL är sex timmar och Cloudflare-läsningar använder 15 minuter. Webhooks invaliderar berörd cache och nästa läsning kan trigga bakgrundsuppdatering. En cron-driven reconciliation körs var sjätte timme för GitHub och, när Cloudflare API-konfiguration finns, även för Cloudflare-källorna.
 
 Säkerhetsledgern lagrar metadata för Code Scanning-, Dependabot- och Secret Scanning-händelser, inte själva upptäckta hemligheten.
 
@@ -103,6 +106,8 @@ Publika drift-/auth-endpoints före dashboardautentisering:
 - `/auth/github/callback`
 - `/auth/logout`
 - `/webhooks/github`
+- `/webhooks/cloudflare/notifications`
+- `/webhooks/cloudflare/casb`
 
 Dashboard-API:t bakom autentisering:
 
@@ -111,6 +116,11 @@ Dashboard-API:t bakom autentisering:
 - `/api/history`
 - `/api/insights/:repo`
 - `/api/repos/:repo`
+- `/api/cloudflare/activity`
+- `/api/cloudflare/notifications/history`
+- `/api/cloudflare/notifications/policies`
+- `/api/cloudflare/notifications/webhooks`
+- `/api/cloudflare/casb/webhooks`
 
 ## Dokumentation och katalogisering
 
