@@ -298,10 +298,10 @@ function renderCloudflareZones(data) {
   ), "Inga zones observerade.");
 }
 
-function renderCloudflareStorage(d1, kv, r2) {
+function renderCloudflareStorage(d1, kvStorage, r2) {
   return kv([
     ["D1 databases", `${statusBadge(pathStatus(d1))} ${d1.available === false ? "—" : fmtInt(d1.count)}`],
-    ["KV namespaces", `${statusBadge(pathStatus(kv))} ${kv.available === false ? "—" : fmtInt(kv.count)}`],
+    ["KV namespaces", `${statusBadge(pathStatus(kvStorage))} ${kvStorage.available === false ? "—" : fmtInt(kvStorage.count)}`],
     ["R2 buckets", `${statusBadge(pathStatus(r2))} ${r2.available === false ? "—" : fmtInt(r2.count)}`],
   ]);
 }
