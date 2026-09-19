@@ -300,7 +300,7 @@ export async function reconcileObservationSources(env: Env): Promise<void> {
       "cloudflare.avkroken.audit_logs",
       () => getCloudflareAuditLogs(env, 1),
     );
-    for (const item of auditItems(audit).slice(0, 40)) {
+    for (const item of auditItems(audit).slice(0, 20)) {
       const event = activityFromCloudflareAudit(item);
       if (event) await recordObservedActivity(env, event);
     }
