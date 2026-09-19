@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { organization } from "./env";
 import { recordSecurityEvent, securityEventFromWebhook } from "./security-events";
+import { activityFromGitHubWebhook, recordObservedActivity } from "./activity";
 import {
   invalidateSourceCache,
   recordWebhookDelivery,
@@ -9,6 +10,12 @@ import {
 
 const encoder = new TextEncoder();
 const SIGNATURE_PREFIX = "sha256=";
+
+const GOVERNANCE_EVENTS = new Set([
+  "branch_protection_rule",
+  "repository",
+  "repository_ruleset",
+]);
 
 const INVALIDATING_EVENTS = new Set([
   "branch_protection_rule",
@@ -67,8 +74,13 @@ export async function verifyWebhookSignature(body: string, signature: string | n
 
 export function webhookCacheKeys(event: string, repo: string | null): string[] {
   if (!INVALIDATING_EVENTS.has(event)) return [];
-  if (!repo) return ["overview"];
-  return ["overview", `repository:${repo}`, `insights:${repo}`];
+  const keys = ["overview"];
+  if (repo) keys.push(`repository:${repo}`, `insights:${repo}`);
+  if (GOVERNANCE_EVENTS.has(event)) {
+    keys.push("github:org:governance");
+    if (repo) keys.push(`github:repo:${repo}:effective-policy`);
+  }
+  return keys;
 }
 
 function repoFromPayload(payload: WebhookPayload): string | null {
@@ -127,6 +139,14 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
   const isNew = await recordWebhookDelivery(env, deliveryId, event, repo);
   if (!isNew) return response({ ok: true, duplicate: true }, 202);
 
+  const observedActivity = activityFromGitHubWebhook(
+    deliveryId,
+    event,
+    repo,
+    payload as unknown as Record<string, unknown>,
+  );
+  const activityRecorded = await recordObservedActivity(env, observedActivity);
+
   const securityRecord = securityEventFromWebhook(deliveryId, event, repo, payload);
   let securityRecorded = false;
   if (securityRecord) {
@@ -150,6 +170,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     event,
     repo,
     invalidated: keys.length,
+    activityRecorded,
     ...(securityRecord ? { securityRecorded } : {}),
   }, 202);
 }
