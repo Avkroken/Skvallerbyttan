@@ -33,13 +33,15 @@ Wrangler definierar:
 
 Nya runtime-secrets för observationslagret:
 
-- `SKVALLERBYTTAN_READ_API_TOKEN` — machine read API
+- `SKVALLERBYTTAN_READ_API_TOKEN` — machine read API; optional tills machine access aktiveras
 - Avkrokens befintliga `CLOUDFLARE_ACCOUNT_ID`
 - Avkrokens befintliga read-only `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET`
 - `CLOUDFLARE_CASB_WEBHOOK_SECRET`
 
 De fyra `CLOUDFLARE_*`-namnen är canonical både i Avkrokens GitHub organization secrets och i Worker-runtime. De äldre `SKVALLERBYTTAN_CLOUDFLARE_*`-namnen finns endast som tillfälliga kodalias under migreringen och ska inte nyprovisioneras.
+
+Om machine API ska aktiveras är `SKVALLERBYTTAN_READ_API_TOKEN` canonical med samma namn som GitHub organization secret och Worker secret. Secret-syncen tar med den om org-secretet finns, men failar inte om machine access ännu inte är provisionerad.
 
 ### Secret ownership och rotation
 
@@ -49,7 +51,7 @@ GitHub organization secrets är canonical källa för de befintliga Cloudflare-c
 
 Secret-sync återanvänder det befintliga `CLOUDFLARE_API_TOKEN`. När sync eller annan explicit Wrangler-drift kräver högre Cloudflare-behörighet höjs behörigheten temporärt på samma token, jobbet körs och verifieras, och tokenets behörighet sänks därefter tillbaka till den normala read-only-nivån. Ingen extra transporttoken och inget extra org-secret skapas.
 
-Secret-sync är endast `workflow_dispatch`. Det är avsiktligt: `wrangler secret bulk` skapar en ny Worker-version och deployar den direkt, så sync är en explicit produktionsåtgärd och inte en PR-gate eller vanlig merge-side-effect.
+Secret-sync är endast `workflow_dispatch`. Det är avsiktligt: `wrangler secret bulk` skapar en ny Worker-version och deployar den direkt, så sync är en explicit produktionsåtgärd och inte en PR-gate eller vanlig merge-side-effect. Secret-sync och ordinarie produktionsdeploy delar concurrency-gruppen `skvallerbyttan-production`, så de kan inte mutera produktionen parallellt.
 
 Rotations-/syncflödet är därför:
 
@@ -136,6 +138,26 @@ GitHub använder normala response headers för limit, remaining, used, reset, re
 Cloudflare sparar Ratelimit/Ratelimit-Policy/Retry-After och throttlingstate från normala API-responser.
 
 Insyn visar denna senaste observerade budgetstate. Avsaknad av tidigare anrop är `not_observed`, inte healthy.
+
+
+## Explicit produktionsdeploy
+
+`.github/workflows/deploy-production.yml` är den reproducerbara vägen för att föra en redan mergad version till produktion. Workflowen är endast `workflow_dispatch`, vägrar köra från annat ref än `main` och kör i ordning:
+
+1. `npm run check`
+2. valfri, default-på applicering av `migrations/0005_observations.sql` mot remote `skvallerbyttan-stats`
+3. `npm run deploy`
+4. `npm run verify:production` mot `/health` och `/ready`
+
+`0005_observations.sql` använder `CREATE TABLE/INDEX IF NOT EXISTS` och är därför avsiktligt idempotent för denna driftväg.
+
+För en full körning med migration behöver det befintliga `CLOUDFLARE_API_TOKEN` temporärt kunna:
+
+- deploya befintlig Worker: Workers/Worker **Editor** / motsvarande Workers Scripts Write,
+- skriva D1-schema: **D1 Edit**,
+- uppdatera Worker Custom Domain vid behov: **Workers Routes Write** för berörd zon.
+
+När migration inte ska köras behövs inte D1 Edit för själva deploysteget. Tokenets normala observationsrättigheter ska återställas till read-only efter verifierad drift. Ingen separat deploy-token ska skapas enbart för detta jobb.
 
 ## Deploymentgräns
 
