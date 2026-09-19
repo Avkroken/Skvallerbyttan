@@ -148,6 +148,39 @@ export function activityFromCloudflareWebhook(input: {
   };
 }
 
+export function activityFromCloudflareAudit(
+  value: Record<string, unknown>,
+  receivedAt = new Date().toISOString(),
+): ObservedActivityEvent | null {
+  const id = text(value.id);
+  if (!id) return null;
+  const action = record(value.action);
+  const resource = record(value.resource);
+  const product = text(resource?.product)?.toLowerCase() || "";
+  const resourceType = text(resource?.type);
+  const capability = product.includes("worker")
+    ? "cloudflare.avkroken.workers"
+    : product.includes("access") || product.includes("gateway") || product.includes("zero")
+      ? "cloudflare.avkroken.zero_trust"
+      : product.includes("zone") || resourceType?.toLowerCase().includes("zone")
+        ? "cloudflare.avkroken.zones"
+        : "cloudflare.avkroken.account";
+  return {
+    eventKey: `cloudflare:audit:${id}`,
+    provider: "cloudflare",
+    capability,
+    source: "audit_log",
+    coverage: "partial",
+    event: text(action?.type) || "audit",
+    action: text(action?.result),
+    resourceType,
+    resourceId: text(resource?.id),
+    repository: null,
+    occurredAt: text(action?.time),
+    receivedAt,
+  };
+}
+
 export async function recordObservedActivity(env: Env, event: ObservedActivityEvent): Promise<boolean> {
   if (!env.STATS_DB) return false;
   try {
