@@ -36,6 +36,7 @@ type ActivityCoverageRow = {
   provider: string;
   capability: string;
   source: string;
+  coverage: ActivityCoverage;
   first_observed_at: string | null;
   last_observed_at: string | null;
   count: number;
@@ -158,13 +159,24 @@ export function activityFromCloudflareAudit(
   const resource = record(value.resource);
   const product = text(resource?.product)?.toLowerCase() || "";
   const resourceType = text(resource?.type);
+  const lowerType = resourceType?.toLowerCase() || "";
   const capability = product.includes("worker")
     ? "cloudflare.avkroken.workers"
-    : product.includes("access") || product.includes("gateway") || product.includes("zero")
-      ? "cloudflare.avkroken.zero_trust"
-      : product.includes("zone") || resourceType?.toLowerCase().includes("zone")
-        ? "cloudflare.avkroken.zones"
-        : "cloudflare.avkroken.account";
+    : product.includes("d1") || lowerType.includes("d1")
+      ? "cloudflare.avkroken.storage.d1"
+      : product.includes("kv") || lowerType.includes("kv")
+        ? "cloudflare.avkroken.storage.kv"
+        : product.includes("r2") || lowerType.includes("r2")
+          ? "cloudflare.avkroken.storage.r2"
+          : product.includes("access") || lowerType.includes("access")
+            ? "cloudflare.avkroken.zero_trust.access"
+            : product.includes("tunnel") || product.includes("connector") || lowerType.includes("tunnel")
+              ? "cloudflare.avkroken.zero_trust.tunnels"
+              : product.includes("gateway") || product.includes("zero")
+                ? "cloudflare.avkroken.zero_trust"
+                : product.includes("zone") || lowerType.includes("zone")
+                  ? "cloudflare.avkroken.zones"
+                  : "cloudflare.avkroken.account";
   return {
     eventKey: `cloudflare:audit:${id}`,
     provider: "cloudflare",
@@ -270,14 +282,14 @@ export async function getObservedActivity(
           ORDER BY count DESC, provider, capability, event`,
       ).bind(...values).all<ActivityGroupRow>(),
       env.STATS_DB.prepare(
-        `SELECT provider, capability, source,
+        `SELECT provider, capability, source, coverage,
                 MIN(received_at) AS first_observed_at,
                 MAX(received_at) AS last_observed_at,
                 COUNT(*) AS count
            FROM observation_events
           WHERE ${where}
-          GROUP BY provider, capability, source
-          ORDER BY provider, capability, source`,
+          GROUP BY provider, capability, source, coverage
+          ORDER BY provider, capability, source, coverage`,
       ).bind(...values).all<ActivityCoverageRow>(),
       env.STATS_DB.prepare(
         `SELECT provider, capability, source, coverage, event, action, resource_type,
@@ -304,7 +316,7 @@ export async function getObservedActivity(
         provider: row.provider,
         capability: row.capability,
         source: row.source,
-        coverage: "since_first_observation",
+        coverage: row.coverage,
         firstObservedAt: row.first_observed_at,
         lastObservedAt: row.last_observed_at,
         periodComplete: false,
