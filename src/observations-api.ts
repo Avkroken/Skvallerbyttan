@@ -2,7 +2,12 @@ import type { Env } from "./env";
 import {
   CloudflareApiError,
   getCloudflareAccount,
+  getCloudflareAccessApplications,
   getCloudflareAuditLogs,
+  getCloudflareD1Databases,
+  getCloudflareKvNamespaces,
+  getCloudflareR2Buckets,
+  getCloudflareTunnels,
   getCloudflareWorkers,
   getCloudflareZones,
 } from "./cloudflare";
@@ -282,6 +287,66 @@ export async function reconcileObservationSources(env: Env): Promise<void> {
       () => cloudflareRead(env, "cloudflare.avkroken.zones", () => getCloudflareZones(env)),
       "reconciliation",
     ),
+    refreshSingleFlight(
+      env,
+      "cloudflare:storage:d1",
+      "cloudflare",
+      {
+        capability: "cloudflare.avkroken.storage.d1",
+        provider: "cloudflare",
+        consumer: "reconciliation",
+      },
+      () => cloudflareRead(env, "cloudflare.avkroken.storage.d1", () => getCloudflareD1Databases(env)),
+      "reconciliation",
+    ),
+    refreshSingleFlight(
+      env,
+      "cloudflare:storage:kv",
+      "cloudflare",
+      {
+        capability: "cloudflare.avkroken.storage.kv",
+        provider: "cloudflare",
+        consumer: "reconciliation",
+      },
+      () => cloudflareRead(env, "cloudflare.avkroken.storage.kv", () => getCloudflareKvNamespaces(env)),
+      "reconciliation",
+    ),
+    refreshSingleFlight(
+      env,
+      "cloudflare:storage:r2",
+      "cloudflare",
+      {
+        capability: "cloudflare.avkroken.storage.r2",
+        provider: "cloudflare",
+        consumer: "reconciliation",
+      },
+      () => cloudflareRead(env, "cloudflare.avkroken.storage.r2", () => getCloudflareR2Buckets(env)),
+      "reconciliation",
+    ),
+    refreshSingleFlight(
+      env,
+      "cloudflare:zero-trust:access",
+      "cloudflare",
+      {
+        capability: "cloudflare.avkroken.zero_trust.access",
+        provider: "cloudflare",
+        consumer: "reconciliation",
+      },
+      () => cloudflareRead(env, "cloudflare.avkroken.zero_trust.access", () => getCloudflareAccessApplications(env)),
+      "reconciliation",
+    ),
+    refreshSingleFlight(
+      env,
+      "cloudflare:zero-trust:tunnels",
+      "cloudflare",
+      {
+        capability: "cloudflare.avkroken.zero_trust.tunnels",
+        provider: "cloudflare",
+        consumer: "reconciliation",
+      },
+      () => cloudflareRead(env, "cloudflare.avkroken.zero_trust.tunnels", () => getCloudflareTunnels(env)),
+      "reconciliation",
+    ),
   ];
 
   for (const task of tasks) {
@@ -403,6 +468,66 @@ export async function handleObservationApi(
       10 * MINUTE,
       { capability: "cloudflare.avkroken.workers", provider: "cloudflare", consumer },
       () => cloudflareRead(env, "cloudflare.avkroken.workers", () => getCloudflareWorkers(env)),
+    );
+  }
+
+  if (url.pathname === "/api/v1/cloudflare/storage/d1") {
+    return cached(
+      env,
+      context,
+      "cloudflare:storage:d1",
+      "cloudflare",
+      30 * MINUTE,
+      { capability: "cloudflare.avkroken.storage.d1", provider: "cloudflare", consumer },
+      () => cloudflareRead(env, "cloudflare.avkroken.storage.d1", () => getCloudflareD1Databases(env)),
+    );
+  }
+
+  if (url.pathname === "/api/v1/cloudflare/storage/kv") {
+    return cached(
+      env,
+      context,
+      "cloudflare:storage:kv",
+      "cloudflare",
+      30 * MINUTE,
+      { capability: "cloudflare.avkroken.storage.kv", provider: "cloudflare", consumer },
+      () => cloudflareRead(env, "cloudflare.avkroken.storage.kv", () => getCloudflareKvNamespaces(env)),
+    );
+  }
+
+  if (url.pathname === "/api/v1/cloudflare/storage/r2") {
+    return cached(
+      env,
+      context,
+      "cloudflare:storage:r2",
+      "cloudflare",
+      30 * MINUTE,
+      { capability: "cloudflare.avkroken.storage.r2", provider: "cloudflare", consumer },
+      () => cloudflareRead(env, "cloudflare.avkroken.storage.r2", () => getCloudflareR2Buckets(env)),
+    );
+  }
+
+  if (url.pathname === "/api/v1/cloudflare/zero-trust/access") {
+    return cached(
+      env,
+      context,
+      "cloudflare:zero-trust:access",
+      "cloudflare",
+      15 * MINUTE,
+      { capability: "cloudflare.avkroken.zero_trust.access", provider: "cloudflare", consumer },
+      () => cloudflareRead(env, "cloudflare.avkroken.zero_trust.access", () => getCloudflareAccessApplications(env)),
+    );
+  }
+
+  if (url.pathname === "/api/v1/cloudflare/zero-trust/tunnels") {
+    return cached(
+      env,
+      context,
+      "cloudflare:zero-trust:tunnels",
+      "cloudflare",
+      15 * MINUTE,
+      { capability: "cloudflare.avkroken.zero_trust.tunnels", provider: "cloudflare", consumer },
+      () => cloudflareRead(env, "cloudflare.avkroken.zero_trust.tunnels", () => getCloudflareTunnels(env)),
     );
   }
 
