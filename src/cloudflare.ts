@@ -427,7 +427,7 @@ export async function getCloudflareAccessApplications(env: Env): Promise<Record<
 export async function getCloudflareTunnels(env: Env): Promise<Record<string, unknown>> {
   const rows = await cloudflareGet<unknown[]>(
     env,
-    "/cfd_tunnel?per_page=100&is_deleted=false",
+    "/tunnels?per_page=100&is_deleted=false",
   );
   const items = array(rows).flatMap((value) => {
     const tunnel = record(value);
@@ -438,6 +438,7 @@ export async function getCloudflareTunnels(env: Env): Promise<Record<string, unk
       status: text(tunnel.status),
       remoteConfig: bool(tunnel.remote_config),
       configSource: text(tunnel.config_src),
+      type: text(tunnel.tun_type),
       createdAt: text(tunnel.created_at),
       deletedAt: text(tunnel.deleted_at),
     }];
