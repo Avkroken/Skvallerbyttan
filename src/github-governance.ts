@@ -106,6 +106,38 @@ export function normalizeActor(value: unknown): NormalizedActor {
   };
 }
 
+async function resolveActor(env: Env, actor: NormalizedActor): Promise<NormalizedActor> {
+  if (actor.resolved || actor.id == null) return actor;
+  if (actor.type !== "User" && actor.type !== "Bot") return actor;
+
+  const result = await githubOptionalJson<UnknownRecord>(
+    env,
+    `/user/${encodeURIComponent(String(actor.id))}`,
+  );
+  if (!result.available) return actor;
+
+  const login = text(result.value.login);
+  const name = text(result.value.name);
+  return {
+    ...actor,
+    name: name ?? login,
+    slug: login,
+    resolved: Boolean(name || login),
+  };
+}
+
+async function resolveRulesetActors(
+  env: Env,
+  ruleset: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const actors = array(ruleset.bypassActors).map(normalizeActor);
+  if (actors.length === 0) return ruleset;
+  return {
+    ...ruleset,
+    bypassActors: await mapLimit(actors, 3, (actor) => resolveActor(env, actor)),
+  };
+}
+
 export function normalizeActionsPolicy(value: unknown): Record<string, unknown> {
   const policy = record(value) ?? {};
   const conditions = record(policy.conditions) ?? {};
@@ -394,7 +426,10 @@ export async function getGitHubRepositoryEffectivePolicy(
       const id = integer(summary.id);
       if (!id) return normalizeRuleset(summary, retrievedAt);
       const detail = await githubOptionalJson<UnknownRecord>(env, `/repos/${encodedRepo}/rulesets/${id}`);
-      return normalizeRuleset(detail.available ? detail.value : summary, retrievedAt);
+      return resolveRulesetActors(
+        env,
+        normalizeRuleset(detail.available ? detail.value : summary, retrievedAt),
+      );
     });
   }
 
