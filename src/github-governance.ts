@@ -368,7 +368,7 @@ export async function getGitHubRepositoryEffectivePolicy(
     githubOptionalJson<UnknownRecord>(env, `/repos/${encodedRepo}/actions/permissions`),
     githubOptionalJson<UnknownRecord>(env, `/repos/${encodedRepo}/actions/permissions/selected-actions`),
     githubOptionalJson<UnknownRecord>(env, `/repos/${encodedRepo}/actions/permissions/workflow`),
-    githubOptionalJson<UnknownRecord>(env, `/repos/${encodedRepo}/properties/values`),
+    githubOptionalJson<unknown[]>(env, `/repos/${encodedRepo}/properties/values`),
     githubOptionalJson<UnknownRecord>(env, `/repos/${encodedRepo}/code-security-configuration`),
   ]);
 
@@ -422,7 +422,7 @@ export async function getGitHubRepositoryEffectivePolicy(
       customProperties: properties.available
         ? {
           ...section(properties),
-          value: array(properties.value.properties).map((propertyValue) => {
+          value: array(properties.value).map((propertyValue) => {
             const item = record(propertyValue) ?? {};
             return { property: text(item.property_name), value: safeObject(item.value), derived: false };
           }),
