@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   evaluateWorkflowEventPolicies,
   normalizeActionsPolicy,
+  normalizeActor,
   normalizeRuleset,
   workflowPathMatches,
 } from "../src/github-governance";
@@ -95,4 +96,20 @@ test("ruleset provenance distinguishes repository direct from inherited organiza
   assert.equal(inherited.provenance.inherited, true);
   assert.equal(inherited.provenance.direct, false);
   assert.equal(inherited.provenance.derived, false);
+});
+
+
+test("ruleset bypass actor keeps provider ID and type when unresolved", () => {
+  assert.deepEqual(normalizeActor({
+    actor_id: 1143301,
+    actor_type: "Integration",
+    bypass_mode: "always",
+  }), {
+    id: 1143301,
+    type: "Integration",
+    name: null,
+    slug: null,
+    bypassMode: "always",
+    resolved: false,
+  });
 });
