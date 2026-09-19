@@ -39,3 +39,17 @@ test("Cloudflare webhook endpoints stay outside dashboard login but fail closed 
     assert.deepEqual(await response.json(), { error: "webhook not configured" });
   }
 });
+
+
+test("machine read token cannot access legacy dashboard API routes", async () => {
+  const response = await worker.fetch(
+    new Request("https://skvallerbyttan.denied.se/api/overview", {
+      headers: { Authorization: "Bearer read-token" },
+    }),
+    { SKVALLERBYTTAN_READ_API_TOKEN: "read-token" } as Env,
+    context(),
+  );
+
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "not found" });
+});
