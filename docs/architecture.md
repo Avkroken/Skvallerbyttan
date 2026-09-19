@@ -17,14 +17,16 @@ Webbläsare
    ▼
 Skvallerbyttan Worker
    ├── privata dashboard-assets
-   ├── API för overview, repo-detaljer, historik och säkerhetsaktivitet
+   ├── API för GitHub- och Cloudflare-data, historik och säkerhetsaktivitet
    ├── GitHub App-klient via Gamnacke
-   ├── webhook-mottagare
+   ├── read-only Cloudflare API-klient
+   ├── separata GitHub-, Notifications- och CASB-webhookmottagare
    └── D1
         ├── snapshots / historik
         ├── API-cache
         ├── webhookleveranser
-        └── säkerhetshändelser
+        ├── GitHub-säkerhetshändelser
+        └── normaliserade Cloudflare-events
 ```
 
 ## Runtime
@@ -55,6 +57,17 @@ Den här identiteten används för att läsa den GitHub-data som dashboarden beh
 
 Krösa-Maja används för användarinloggning genom GitHub OAuth. OAuth-flödet begär endast `read:user`, använder PKCE med S256 och verifierar användarens numeriska GitHub-ID mot en uttrycklig allowlist. OAuth-tokenet används för identitetsuppslag, lagras inte av Skvallerbyttan och återkallas efter callback-flödet.
 
+## Cloudflare-integration
+
+Cloudflare-integrationen har två separata datavägar:
+
+1. **Push/event:** Cloudflare Notifications och Cloudflare One CASB skickar webhookhändelser till separata endpoints med separata secrets. Endast normaliserad metadata lagras i D1; godtyckliga alert- och finding-payloads lagras inte.
+2. **Pull/current state:** en separat API-klient använder ett read-only Cloudflare API-token för att läsa Notifications-historik, Notifications-policyer, webhookdestinationers leveransstatus och CASB-webhookkonfiguration.
+
+Cloudflare-läsningar cachelagras separat från GitHub-data. Webhookhändelser används som signaler för cacheinvalidering, medan API-läsningen förblir authoritative current state.
+
+API-svaret för webhookdestinationer reduceras innan det når dashboarden: destinations-URL:er, secrets och header-värden exponeras inte.
+
 ## Dashboard-API
 
 Den autentiserade Worker-routen exponerar bland annat:
@@ -64,6 +77,11 @@ Den autentiserade Worker-routen exponerar bland annat:
 - `GET /api/history`
 - `GET /api/insights/:repo`
 - `GET /api/repos/:repo`
+- `GET /api/cloudflare/activity`
+- `GET /api/cloudflare/notifications/history`
+- `GET /api/cloudflare/notifications/policies`
+- `GET /api/cloudflare/notifications/webhooks`
+- `GET /api/cloudflare/casb/webhooks`
 
 Repositorysegment valideras innan de används i GitHub-anrop eller D1-frågor.
 
@@ -71,7 +89,7 @@ Repositorysegment valideras innan de används i GitHub-anrop eller D1-frågor.
 
 Översikts-, repository- och insightsdata lagras i en D1-baserad source cache. Normal cache-TTL är sex timmar.
 
-GitHub-webhooks invaliderar bara de cacheposter som berörs av händelsen. Nästa läsning kan då returnera den senast kända datan och starta en bakgrundsuppdatering. En schemalagd körning var sjätte timme uppdaterar organisationsöversikten som reconciliation och rensar gamla webhookleveranser.
+GitHub-webhooks invaliderar bara de GitHub-cacheposter som berörs av händelsen. Cloudflare Notifications invaliderar motsvarande Notifications-historikcache. Nästa läsning kan då returnera den senast kända datan och starta en bakgrundsuppdatering. En schemalagd körning var sjätte timme uppdaterar GitHub-organisationsöversikten och, när Cloudflare API-konfiguration finns, de fyra Cloudflare-läsningarna som reconciliation. Den rensar även gamla webhookleveranser och Cloudflare-event enligt respektive retention.
 
 Single-flight-logik används för att undvika parallella identiska refresh-anrop inom samma Worker-instans.
 
@@ -81,7 +99,8 @@ D1-migrationerna skapar stöd för:
 
 1. statistik- och repositorysnapshots,
 2. API/source-cache,
-3. säkerhetshändelser.
+3. säkerhetshändelser,
+4. normaliserade Cloudflare-events.
 
 Webhookhändelser för Code Scanning, Dependabot och Secret Scanning kan sparas i en separat ledger. Endast metadata som händelsetyp, repository, alertnummer, action, severity, paket/rule/secret-typ och resolution lagras; själva hemligheten lagras inte.
 
