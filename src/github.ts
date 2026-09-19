@@ -1,4 +1,4 @@
-import { organization, resolveSecretValue, type Env } from "./env";
+import { gamnackenPrivateKey, organization, type Env } from "./env";
 
 const API_VERSION = "2026-03-10";
 const USER_AGENT = "Avkroken-Skvallerbyttan-dashboard";
@@ -99,7 +99,7 @@ async function appJwt(env: Env): Promise<string> {
     iss: env.GAMNACKEN_GITHUB_APP_CLIENT_ID,
   }));
   const unsigned = `${header}.${payload}`;
-  const privateKey = await resolveSecretValue(env.GAMNACKEN_GITHUB_APP_PRIVATE_KEY);
+  const privateKey = await gamnackenPrivateKey(env);
   if (!privateKey) throw new Error("Gamnacken GitHub App private key is not configured");
   const key = await crypto.subtle.importKey(
     "pkcs8",
