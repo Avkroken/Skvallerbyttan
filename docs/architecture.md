@@ -34,7 +34,7 @@ CF Audit Logs ──────────────┘
             /api/v1 contract    internal signals
              ├── dashboard            │
              └── machine clients      ▼
-                              avkroken-portal RPC
+                              avkroken RPC
                               docs cache invalidation
 ```
 
@@ -42,7 +42,7 @@ CF Audit Logs ──────────────┘
 
 Provider-events ska ha **en canonical ingress**: Skvallerbyttan. Fronten på `avkroken.denied.se` ska inte behöva GitHub- eller Cloudflare-webhookhemligheter för att reagera på observerade händelser.
 
-När ett signerat GitHub-event ändrar `README.md` eller `docs/**` på repositoryts publika default branch, signalerar Skvallerbyttan Avkroken-portalen genom Cloudflare Service Binding `AVKROKEN_PORTAL_DOCS`. Bindingen pekar på den namngivna RPC-entrypointen `DocsInvalidationService` i `avkroken-portal`. Anropet går internt inom Cloudflare-kontot och exponerar ingen publik intern endpoint eller ytterligare secret.
+När ett signerat GitHub-event ändrar `README.md` eller `docs/**` på repositoryts publika default branch, signalerar Skvallerbyttan Avkroken-portalen genom Cloudflare Service Binding `AVKROKEN_PORTAL_DOCS`. Bindingen pekar på den namngivna RPC-entrypointen `DocsInvalidationService` i den live Cloudflare-tjänsten `avkroken` (portalens källkod ligger i `Avkroken/.github/portal`). Anropet går internt inom Cloudflare-kontot och exponerar ingen publik intern endpoint eller ytterligare secret.
 
 Repository-events signalerar också portalens dokumentationskatalog, inklusive tidigare repositorynamn vid rename. Service-signalen sker före webhook-dedupliceringen så en manuell GitHub-redelivery kan reparera en tidigare misslyckad portalinvalidering utan att dubbellagra Activity-eventet.
 
