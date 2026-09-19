@@ -138,7 +138,7 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
     implemented: true,
     providerSupport: "supported",
     endpoint: "GET /repos/{owner}/{repo}/rulesets?includes_parents=true",
-    permission: "Repository ruleset read access",
+    permission: "Metadata (repository): read",
     permissionLevel: "read",
     supports: ["list", "detail", "effective_state", "provenance"],
     cacheTtlMs: 5 * MINUTE,
