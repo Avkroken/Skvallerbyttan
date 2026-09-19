@@ -90,3 +90,48 @@ test("broad Cloudflare reads use only documented GET endpoints and normalized me
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("Cloudflare inventories follow page and cursor pagination without reading contents", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    seen.push(url.toString());
+
+    if (url.pathname.endsWith("/d1/database")) {
+      const page = Number(url.searchParams.get("page") || "1");
+      return new Response(JSON.stringify({
+        success: true,
+        result: [{ uuid: `d1-${page}`, name: `db-${page}` }],
+        result_info: { count: 1, page, per_page: 1, total_count: 2 },
+      }));
+    }
+
+    if (url.pathname.endsWith("/r2/buckets")) {
+      const cursor = url.searchParams.get("cursor");
+      return new Response(JSON.stringify({
+        success: true,
+        result: { buckets: [{ name: cursor ? "bucket-2" : "bucket-1" }] },
+        result_info: { cursor: cursor ? null : "next-page", per_page: 1 },
+      }));
+    }
+
+    throw new Error(`unexpected URL: ${url}`);
+  };
+
+  try {
+    const d1 = await getCloudflareD1Databases(env) as any;
+    const r2 = await getCloudflareR2Buckets(env) as any;
+    assert.equal(d1.count, 2);
+    assert.equal(d1.truncated, false);
+    assert.equal(r2.count, 2);
+    assert.equal(r2.truncated, false);
+    assert.equal(seen.filter((url) => url.includes("/d1/database")).length, 2);
+    assert.equal(seen.filter((url) => url.includes("/r2/buckets")).length, 2);
+    assert.equal(seen.some((url) => url.includes("/query")), false);
+    assert.equal(seen.some((url) => url.includes("/objects")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
