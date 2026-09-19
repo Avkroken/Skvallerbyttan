@@ -22,7 +22,9 @@ Avkroken/.github är central källa för organisationsgemensam engineering-, CI-
 
 ## Produktansvar
 
-Skvallerbyttan är Avkrokens centrala **read-only observationslager** för GitHub och Cloudflare. Dashboard och machine API delar samma canonical normaliserade state.
+Skvallerbyttan är Avkrokens centrala **read-only observationslager och eventnav** för GitHub och Cloudflare. Dashboard och machine API delar samma canonical normaliserade state. Provider-webhooks ska termineras här; andra Avkroken-tjänster reagerar via interna signaler i stället för att skapa parallella provider-integrationer.
+
+`Avkroken/.github` är central organisations-/engineeringkälla och `avkroken.denied.se` är fronten. Skvallerbyttan är underförrådet som äger eventström, Activity och samlad historik.
 
 Skvallerbyttan är inte ett administrativt provider-API.
 
@@ -42,7 +44,8 @@ Navigationen är tangentbordsnavigerbar, deep-linkbar och data lazy-laddas per f
 
 - **Gamnacke:** GitHub App för provider-reads.
 - **Krösa-Maja:** OAuth login för människan.
-- **GitHub webhook:** eventdriven Activity, security ledger och cache invalidation.
+- **GitHub organization webhook:** canonical event-ingress för Activity, security ledger och cache invalidation.
+- **Avkroken portal signal:** docs-relevanta GitHub-events skickas internt via Cloudflare Service Binding `AVKROKEN_PORTAL_DOCS` till `avkroken-portal`/`DocsInvalidationService`; portalen behöver därmed ingen egen provider-webhook för detta.
 
 GitHub REST API-version: `2026-03-10`.
 
@@ -62,7 +65,21 @@ Runtime binder `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFL
 
 GitHub Actions som muterar Cloudflare använder W1-credentialen när den finns. Runtime-secret-sync kopierar inte längre R1/R2/R3 från GitHub till vanliga Worker secrets.
 
-Cloudflare-account-ID är versionerad icke-hemlig config. GitHub- och Cloudflare-webhooks använder var sitt canonical secret; Notifications och CASB delar Cloudflare-webhooksecretet. Observationskoden använder inga provider-write-operationer.
+Cloudflare-account-ID är versionerad icke-hemlig config. GitHub- och Cloudflare-webhooks använder var sitt canonical secret; Notifications och CASB delar Cloudflare-webhooksecretet. Cloudflare Notifications och CASB är canonical push-ingress för Cloudflare-event som providern exponerar den vägen. Audit Logs och reconciliation täcker resterande observerbara ändringar. Observationskoden använder inga provider-write-operationer.
+
+## Interna event-signaler
+
+Downstream-tjänster får inte behöva duplicera providerautentisering enbart för cache/freshness-signaler.
+
+För publik repositorydokumentation:
+
+1. GitHub levererar `push`/`repository` till Skvallerbyttan.
+2. Skvallerbyttan verifierar webhooksignaturen och organisationsgränsen.
+3. Relevanta docs-events signaleras till `avkroken-portal` genom den interna Service Bindingen `AVKROKEN_PORTAL_DOCS`.
+4. Portalens `DocsInvalidationService` purgar endast `docs-catalog` och berörda `docs-repo-*` cache-tags.
+5. Activity/deduplication ligger fortsatt i Skvallerbyttan; portalen blir inte ett parallellt eventlager.
+
+Service Bindingen är intern Cloudflare-RPC och kräver ingen separat webhook-secret.
 
 ## Data
 
