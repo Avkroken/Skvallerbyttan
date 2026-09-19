@@ -50,14 +50,14 @@ Varje bunden Secrets Store-secret ska ha `workers` i sin scope-lista. Bindings h
 
 Befintliga vanliga Worker secrets återanvänds för webhook-ingress i stället för att duplicera eller rotera fungerande credentials:
 
-- `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`
+- `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY` — befintligt runtime-bindingnamn för Gamnackens privata nyckel
 - `SKVALLERBYTTAN_SESSION_SECRET`
 - `SKVALLERBYTTAN_WEBHOOK_SECRET` — GitHub provider-webhook
 - `CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET`
 - `CLOUDFLARE_CASB_WEBHOOK_SECRET`
 - `SKVALLERBYTTAN_READ_API_TOKEN` — valfri machine read API
 
-Gamnackens privata GitHub App-nyckel ligger som vanlig Worker secret eftersom den råa RSA-PEM-representationen överskrider Secrets Stores nuvarande 1024-bytegräns per secret. Koden accepterar PKCS#1 `RSA PRIVATE KEY` och PKCS#8 `PRIVATE KEY`; PKCS#1 wrap:as till PKCS#8 i minnet före Web Crypto-import.
+Gamnackens privata GitHub App-nyckel ligger som vanlig Worker secret eftersom den råa RSA-PEM-representationen överskrider Secrets Stores nuvarande 1024-bytegräns per secret. Det redan provisionerade runtime-bindingnamnet `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY` återanvänds för att undvika onödig rotation. Den centrala källan i GitHub kan fortsatt heta `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`; runtime-sync skriver dess värde till det befintliga Worker-bindingnamnet. Koden accepterar PKCS#1 `RSA PRIVATE KEY` och PKCS#8 `PRIVATE KEY`; PKCS#1 wrap:as till PKCS#8 i minnet före Web Crypto-import.
 
 GitHub Actions som muterar Cloudflare använder endast `CLOUDFLARE_API_TOKEN_W1`. Wrangler får värdet via den miljövariabel som verktyget kräver, `CLOUDFLARE_API_TOKEN`, men det finns inget generiskt org-secret med det namnet.
 
@@ -67,7 +67,7 @@ GitHub Actions som muterar Cloudflare använder endast `CLOUDFLARE_API_TOKEN_W1`
 
 Workflowen använder W1 och synkar endast Worker-lokala secrets som uttryckligen har en GitHub-källa:
 
-- `GAMNACKEN_GITHUB_APP_PRIVATE_KEY`
+- `GAMNACKEN_GITHUB_APP_PRIVATE_KEY` som central GitHub-källa, synkad till befintliga Worker-bindingen `SKVALLERBYTTAN_GAMNACKE_PRIVATE_KEY`
 - valfri `SKVALLERBYTTAN_READ_API_TOKEN`
 
 R1/R2/R3 och Krösa-Majas client secret läses direkt från Cloudflare Secrets Store. Befintliga webhook Worker secrets lämnas orörda av deploy och secret-sync.
