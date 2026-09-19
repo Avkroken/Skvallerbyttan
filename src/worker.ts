@@ -1,6 +1,19 @@
 import type { Env } from "./env";
 import { getOverview, getRepositoryDetail } from "./data";
 import { GitHubApiError } from "./github";
+import {
+  CloudflareApiError,
+  cloudflareApiConfigured,
+  getCloudflareCasbWebhooks,
+  getCloudflareNotificationHistory,
+  getCloudflareNotificationPolicies,
+  getCloudflareNotificationWebhooks,
+} from "./cloudflare";
+import { getCloudflareActivity, pruneCloudflareEvents } from "./cloudflare-events";
+import {
+  handleCloudflareCasbWebhook,
+  handleCloudflareNotificationsWebhook,
+} from "./cloudflare-webhook";
 import { getRepositoryInsights } from "./insights";
 import { getSecurityActivity } from "./security-events";
 import { singleFlight } from "./single-flight";
@@ -32,7 +45,9 @@ import {
 } from "./auth";
 
 const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const CLOUDFLARE_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
 const WEBHOOK_DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const CLOUDFLARE_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const REPO_NAME = /^[A-Za-z0-9_.-]+$/;
 
 function json(value: unknown, status = 200, extraHeaders?: HeadersInit): Response {
@@ -209,6 +224,27 @@ async function refreshOverviewCache(env: Env, context: ExecutionContext): Promis
   ) as Record<string, unknown>;
 }
 
+async function scheduledCloudflareRefresh(env: Env): Promise<void> {
+  if (!cloudflareApiConfigured(env)) return;
+  const sources: Array<[string, () => Promise<Record<string, unknown>>]> = [
+    ["cloudflare:notifications:history", () => getCloudflareNotificationHistory(env)],
+    ["cloudflare:notifications:policies", () => getCloudflareNotificationPolicies(env)],
+    ["cloudflare:notifications:webhooks", () => getCloudflareNotificationWebhooks(env)],
+    ["cloudflare:casb:webhooks", () => getCloudflareCasbWebhooks(env)],
+  ];
+
+  for (const [key, loader] of sources) {
+    try {
+      await refreshSourceValueSingleFlight(env, key, "cloudflare", loader);
+    } catch (error) {
+      console.error("scheduled cloudflare reconciliation failed", {
+        key,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
 async function scheduledRefresh(env: Env, context: ExecutionContext): Promise<void> {
   if (!sourceCacheConfigured(env)) {
     console.error("scheduled source refresh skipped: STATS_DB is not bound");
@@ -223,11 +259,22 @@ async function scheduledRefresh(env: Env, context: ExecutionContext): Promise<vo
     });
   }
 
+  await scheduledCloudflareRefresh(env);
+
   try {
     const cutoff = new Date(Date.now() - WEBHOOK_DELIVERY_RETENTION_MS).toISOString();
     await pruneWebhookDeliveries(env, cutoff);
   } catch (error) {
     console.error("webhook delivery pruning failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  try {
+    const cutoff = new Date(Date.now() - CLOUDFLARE_EVENT_RETENTION_MS).toISOString();
+    await pruneCloudflareEvents(env, cutoff);
+  } catch (error) {
+    console.error("cloudflare event pruning failed", {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -255,6 +302,59 @@ async function handleApi(request: Request, env: Env, context: ExecutionContext):
       await getSecurityActivity(env, repo, Number.isFinite(days) ? days : 30),
       200,
       { "Cache-Control": "private, no-store" },
+    );
+  }
+
+  if (url.pathname === "/api/cloudflare/activity") {
+    const days = Number(url.searchParams.get("days") ?? "30");
+    return json(
+      await getCloudflareActivity(env, Number.isFinite(days) ? days : 30),
+      200,
+      { "Cache-Control": "private, no-store" },
+    );
+  }
+
+  if (url.pathname === "/api/cloudflare/notifications/history") {
+    return sourceCachedJson(
+      env,
+      context,
+      "cloudflare:notifications:history",
+      "cloudflare",
+      CLOUDFLARE_CACHE_MAX_AGE_MS,
+      () => getCloudflareNotificationHistory(env),
+    );
+  }
+
+  if (url.pathname === "/api/cloudflare/notifications/policies") {
+    return sourceCachedJson(
+      env,
+      context,
+      "cloudflare:notifications:policies",
+      "cloudflare",
+      CLOUDFLARE_CACHE_MAX_AGE_MS,
+      () => getCloudflareNotificationPolicies(env),
+    );
+  }
+
+  if (url.pathname === "/api/cloudflare/notifications/webhooks") {
+    return sourceCachedJson(
+      env,
+      context,
+      "cloudflare:notifications:webhooks",
+      "cloudflare",
+      CLOUDFLARE_CACHE_MAX_AGE_MS,
+      () => getCloudflareNotificationWebhooks(env),
+    );
+  }
+
+  if (url.pathname === "/api/cloudflare/casb/webhooks") {
+    return sourceCachedJson(
+      env,
+      context,
+      "cloudflare:casb:webhooks",
+      "cloudflare",
+      CLOUDFLARE_CACHE_MAX_AGE_MS,
+      () => getCloudflareCasbWebhooks(env),
     );
   }
 
@@ -321,6 +421,28 @@ export default {
         return await handleGitHubWebhook(request, env);
       } catch (error) {
         console.error("github webhook failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return json({ error: "webhook processing failed" }, 500, { "Cache-Control": "no-store" });
+      }
+    }
+
+    if (url.pathname === "/webhooks/cloudflare/notifications") {
+      try {
+        return await handleCloudflareNotificationsWebhook(request, env);
+      } catch (error) {
+        console.error("cloudflare notifications webhook failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return json({ error: "webhook processing failed" }, 500, { "Cache-Control": "no-store" });
+      }
+    }
+
+    if (url.pathname === "/webhooks/cloudflare/casb") {
+      try {
+        return await handleCloudflareCasbWebhook(request, env);
+      } catch (error) {
+        console.error("cloudflare casb webhook failed", {
           error: error instanceof Error ? error.message : String(error),
         });
         return json({ error: "webhook processing failed" }, 500, { "Cache-Control": "no-store" });
@@ -398,6 +520,18 @@ export default {
         headers,
       });
     } catch (error) {
+      if (error instanceof CloudflareApiError) {
+        console.error("cloudflare api request failed", {
+          status: error.status,
+          error: error.message,
+        });
+        const status = error.status === 503 ? 503 : 502;
+        return json(
+          { error: status === 503 ? "cloudflare integration not configured" : "cloudflare upstream request failed" },
+          status,
+          { "Cache-Control": "no-store" },
+        );
+      }
       if (error instanceof GitHubApiError && (error.status === 404 || error.status === 403)) {
         return json(
           { error: error.status === 404 ? "repository not found" : "repository access denied" },
