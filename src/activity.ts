@@ -78,7 +78,7 @@ function githubCapability(event: string): string {
   return "github.avkroken.repositories";
 }
 
-function githubResourceId(event: string, payload: Record<string, unknown>): string | null {
+function githubResourceId(payload: Record<string, unknown>): string | null {
   const candidates = [
     record(payload.workflow_run)?.id,
     record(payload.pull_request)?.number,
@@ -113,7 +113,7 @@ export function activityFromGitHubWebhook(
     event,
     action: text(payload.action),
     resourceType: event,
-    resourceId: githubResourceId(event, payload),
+    resourceId: githubResourceId(payload),
     repository,
     occurredAt: null,
     receivedAt,
