@@ -8,13 +8,13 @@ import {
 import type { Env } from "../src/env";
 
 const env = {
-  SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "account123",
-  SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN: "token",
+  CLOUDFLARE_ACCOUNT_ID: "account123",
+  CLOUDFLARE_API_TOKEN: "token",
 } as Env;
 
 test("Cloudflare API configuration requires both account id and token", () => {
   assert.equal(cloudflareApiConfigured(env), true);
-  assert.equal(cloudflareApiConfigured({ SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID: "account123" } as Env), false);
+  assert.equal(cloudflareApiConfigured({ CLOUDFLARE_ACCOUNT_ID: "account123" } as Env), false);
 });
 
 test("notification webhook reads redact destination URLs", async () => {
