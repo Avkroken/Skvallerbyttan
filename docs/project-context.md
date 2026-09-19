@@ -50,6 +50,8 @@ Viktig providerbegränsning: list/get av Actions Policies och organization Rules
 
 ## Cloudflare
 
+Canonical Cloudflare runtime bindings använder Avkrokens organization-wide `CLOUDFLARE_*`-namn. GitHub organization secrets är credential-källa; en separat manuell secret-sync workflow transporterar värden till Worker-runtime utan att de behöver exponeras eller kopieras av en operatör. Transporttoken är skild från provider read-token och används aldrig av observationskoden.
+
 Read-only provider client omfattar:
 
 - Account

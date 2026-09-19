@@ -47,7 +47,11 @@ Gamnacke används som GitHub App. Worker skapar App-JWT och kortlivat installati
 
 ## Cloudflare provider auth
 
-Cloudflare använder account ID och ett read-only API-token. Tokenet används för metadata/configuration reads och Analytics Engine SQL SELECT. Det används inte för produktionsändringar.
+Cloudflare använder Avkrokens canonical `CLOUDFLARE_ACCOUNT_ID` och ett read-only `CLOUDFLARE_API_TOKEN`. Tokenet används för metadata/configuration reads och Analytics Engine SQL SELECT. Det används inte för produktionsändringar.
+
+GitHub Actions-secretet `CLOUDFLARE_SECRET_SYNC_TOKEN` har en separat roll: det är en transportcredential för att synka canonical org-secrets till Worker-runtime. Det exponeras aldrig som runtime-binding och får inte vara samma credential som read-tokenet. Därmed behöver en provider-tokenrotation bara uppdateras i canonical secret store och sedan synkas maskinellt utan att ge observationskoden provider-write-behörighet.
+
+De äldre runtime-namnen `SKVALLERBYTTAN_CLOUDFLARE_*` stöds tillfälligt endast som migrationsfallback och ska inte användas för nya secrets.
 
 Skvallerbyttan läser inte D1-tabellinnehåll, KV values eller R2 object content som del av observationsinventeringen.
 

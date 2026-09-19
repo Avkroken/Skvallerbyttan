@@ -1,4 +1,4 @@
-import type { Env } from "./env";
+import { cloudflareAccountId, cloudflareApiToken, type Env } from "./env";
 
 export type ReadConsumer = "dashboard" | "chatgpt" | "reconciliation" | "background_refresh" | "internal";
 export type ReadResult = "ok" | "error" | "permission_denied" | "stale";
@@ -40,8 +40,8 @@ export function recordReadTelemetry(
 }
 
 export async function getReadTelemetry(env: Env, requestedDays = 30): Promise<Record<string, unknown>> {
-  const accountId = env.SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID?.trim() || "";
-  const token = env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN?.trim() || "";
+  const accountId = cloudflareAccountId(env);
+  const token = cloudflareApiToken(env);
   if (!ACCOUNT_ID.test(accountId) || !token) {
     return { schemaVersion: 1, available: false, status: "not_configured", reason: "cloudflare-api-not-configured" };
   }

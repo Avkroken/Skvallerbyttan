@@ -1,4 +1,4 @@
-import type { Env } from "./env";
+import { cloudflareCasbWebhookSecret, cloudflareNotificationsWebhookSecret, type Env } from "./env";
 import { cloudflareApiConfigured, getCloudflareBudget } from "./cloudflare";
 import { getGitHubBudget } from "./github";
 
@@ -57,10 +57,10 @@ export function getProviderHealth(env: Env): Record<string, unknown> {
         },
         webhooks: {
           notificationsConfigured: Boolean(
-            env.SKVALLERBYTTAN_CLOUDFLARE_NOTIFICATIONS_WEBHOOK_SECRET?.trim() && env.STATS_DB,
+            cloudflareNotificationsWebhookSecret(env) && env.STATS_DB,
           ),
           casbConfigured: Boolean(
-            env.SKVALLERBYTTAN_CLOUDFLARE_CASB_WEBHOOK_SECRET?.trim() && env.STATS_DB,
+            cloudflareCasbWebhookSecret(env) && env.STATS_DB,
           ),
         },
         reconciliation: {
