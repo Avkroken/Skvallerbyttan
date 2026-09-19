@@ -1,4 +1,4 @@
-import type { Env } from "./env";
+import { cloudflareAccountId, cloudflareApiToken, type Env } from "./env";
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -84,8 +84,8 @@ function array(value: unknown): unknown[] {
 }
 
 function credentials(env: Env): { accountId: string; token: string } {
-  const accountId = env.SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID?.trim() || "";
-  const token = env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN?.trim() || "";
+  const accountId = cloudflareAccountId(env);
+  const token = cloudflareApiToken(env);
   if (!ACCOUNT_ID.test(accountId) || !token) {
     throw new CloudflareApiError("cloudflare integration not configured", 503);
   }
@@ -93,8 +93,8 @@ function credentials(env: Env): { accountId: string; token: string } {
 }
 
 export function cloudflareApiConfigured(env: Env): boolean {
-  const accountId = env.SKVALLERBYTTAN_CLOUDFLARE_ACCOUNT_ID?.trim() || "";
-  return ACCOUNT_ID.test(accountId) && Boolean(env.SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN?.trim());
+  const accountId = cloudflareAccountId(env);
+  return ACCOUNT_ID.test(accountId) && Boolean(cloudflareApiToken(env));
 }
 
 function captureBudget(response: Response, error: string | null = null): void {
