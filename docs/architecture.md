@@ -8,34 +8,45 @@ permalink: /architecture/
 
 ## Mål
 
-Skvallerbyttan är Avkrokens centrala read-only observationslager. GitHub och Cloudflare är auktoritativa providers; Skvallerbyttan normaliserar deras state, lagrar begränsad historik och exponerar samma canonical underlag till dashboard och auktoriserade maskinklienter.
+Skvallerbyttan är Avkrokens centrala read-only observationslager och eventnav. GitHub och Cloudflare är auktoritativa providers; provider-webhooks terminerar i Skvallerbyttan, som normaliserar deras state, lagrar begränsad historik och exponerar samma canonical underlag till dashboard och auktoriserade maskinklienter. `Avkroken/.github` och `avkroken.denied.se` är den centrala organisations- och frontytan, inte ett separat provider-observationslager.
 
 ```text
-GitHub APIs ───────┐
-GitHub webhooks ───┤
-                   ▼
-             Provider adapters
-                   │
-Cloudflare APIs ───┤
-CF webhooks ───────┤
-CF Audit Logs ─────┘
-                   │
-                   ▼
-           Canonical normalized state
-                   │
-      ┌────────────┼─────────────┐
-      ▼            ▼             ▼
- source cache    D1 history   Analytics Engine
- / current       / events     read telemetry
-      └────────────┼─────────────┘
-                   ▼
-           effective-state views
-                   │
-                   ▼
-             /api/v1 contract
-              ├── dashboard
-              └── machine clients
+GitHub APIs ───────────────┐
+GitHub org webhook ────────┤
+                           ▼
+                     Skvallerbyttan
+Cloudflare APIs ───────────┤
+CF Notifications webhook ──┤
+CF CASB webhook ────────────┤
+CF Audit Logs ──────────────┘
+                           │
+                           ▼
+                 Canonical normalized state
+                           │
+              ┌────────────┼─────────────┐
+              ▼            ▼             ▼
+         source cache    D1 history   Analytics Engine
+         / current       / events     read telemetry
+              └────────────┼─────────────┘
+                           │
+                 ┌─────────┴──────────┐
+                 ▼                    ▼
+            /api/v1 contract    internal signals
+             ├── dashboard            │
+             └── machine clients      ▼
+                              avkroken-portal RPC
+                              docs cache invalidation
 ```
+
+## Systemgräns
+
+Provider-events ska ha **en canonical ingress**: Skvallerbyttan. Fronten på `avkroken.denied.se` ska inte behöva GitHub- eller Cloudflare-webhookhemligheter för att reagera på observerade händelser.
+
+När ett signerat GitHub-event ändrar `README.md` eller `docs/**` på repositoryts publika default branch, signalerar Skvallerbyttan Avkroken-portalen genom Cloudflare Service Binding `AVKROKEN_PORTAL_DOCS`. Bindingen pekar på den namngivna RPC-entrypointen `DocsInvalidationService` i `avkroken-portal`. Anropet går internt inom Cloudflare-kontot och exponerar ingen publik intern endpoint eller ytterligare secret.
+
+Repository-events signalerar också portalens dokumentationskatalog, inklusive tidigare repositorynamn vid rename. Service-signalen sker före webhook-dedupliceringen så en manuell GitHub-redelivery kan reparera en tidigare misslyckad portalinvalidering utan att dubbellagra Activity-eventet.
+
+Cloudflare-providerhändelser kommer redan in genom Notifications- och CASB-webhooks och skrivs till samma observationsmodell. Audit Logs och den sex-timmars reconciliation-körningen är safety net för det som inte exponeras som push-event.
 
 ## Runtime
 
@@ -118,7 +129,7 @@ Source-prioritet:
 3. snapshot diff
 4. reconciliation
 
-Nuvarande generella ledger använder främst GitHub/Cloudflare-webhooks samt Cloudflare Audit Logs. Coverage anges explicit. Webhookdata är normalt `since_first_observation`; Audit Log-ingest markeras `partial`.
+Nuvarande generella ledger använder GitHub-organisationswebhooken, Cloudflare Notifications/CASB och Cloudflare Audit Logs. Coverage anges explicit. Webhookdata är normalt `since_first_observation`; Audit Log-ingest markeras `partial`. Downstream-signaler till andra Avkroken-tjänster är effekter av redan verifierade events och är inte en ny provider-källa.
 
 ## Reads
 

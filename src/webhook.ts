@@ -43,9 +43,29 @@ const INVALIDATING_EVENTS = new Set([
   "workflow_run",
 ]);
 
+type WebhookCommit = {
+  added?: string[] | null;
+  modified?: string[] | null;
+  removed?: string[] | null;
+};
+
 type WebhookPayload = {
+  ref?: string | null;
+  size?: number | null;
+  commits?: WebhookCommit[] | null;
+  changes?: {
+    repository?: {
+      name?: { from?: string | null } | null;
+    } | null;
+  } | null;
   organization?: { login?: string | null } | null;
-  repository?: { name?: string | null; owner?: { login?: string | null } | null } | null;
+  repository?: {
+    name?: string | null;
+    default_branch?: string | null;
+    private?: boolean | null;
+    visibility?: string | null;
+    owner?: { login?: string | null } | null;
+  } | null;
 };
 
 function bytesFromHex(value: string): Uint8Array | null {
@@ -89,6 +109,80 @@ function repoFromPayload(payload: WebhookPayload): string | null {
 
 function ownerFromPayload(payload: WebhookPayload): string | null {
   return payload.organization?.login?.trim() || payload.repository?.owner?.login?.trim() || null;
+}
+
+
+function docsPath(path: unknown): boolean {
+  if (typeof path !== "string") return false;
+  return /^docs\/.*\.(md|markdown)$/i.test(path) || /^readme\.(md|markdown)$/i.test(path);
+}
+
+function pushTouchesDocs(payload: WebhookPayload): boolean {
+  if (!Array.isArray(payload.commits)) return true;
+  if (typeof payload.size === "number" && payload.size > payload.commits.length) return true;
+
+  return payload.commits.some((commit) =>
+    ["added", "modified", "removed"].some((field) => {
+      const paths = commit[field as keyof WebhookCommit];
+      return Array.isArray(paths) && paths.some(docsPath);
+    }),
+  );
+}
+
+export function portalDocsInvalidation(
+  event: string,
+  payload: WebhookPayload,
+): { repositoryName: string; previousRepositoryName: string | null } | null {
+  const repositoryName = repoFromPayload(payload);
+  if (!repositoryName) return null;
+
+  if (event === "push") {
+    const defaultBranch = payload.repository?.default_branch?.trim();
+    const isPublic = payload.repository?.private === false || payload.repository?.visibility === "public";
+    if (!defaultBranch || !isPublic) return null;
+    if (payload.ref !== `refs/heads/${defaultBranch}`) return null;
+    if (!pushTouchesDocs(payload)) return null;
+    return { repositoryName, previousRepositoryName: null };
+  }
+
+  if (event === "repository") {
+    const previousRepositoryName = payload.changes?.repository?.name?.from?.trim() || null;
+    return { repositoryName, previousRepositoryName };
+  }
+
+  return null;
+}
+
+async function invalidatePortalDocs(
+  env: Env,
+  signal: { repositoryName: string; previousRepositoryName: string | null },
+): Promise<boolean> {
+  const service = env.AVKROKEN_PORTAL_DOCS;
+  if (!service) {
+    console.error("avkroken portal docs service binding is not configured", {
+      repository: signal.repositoryName,
+    });
+    return false;
+  }
+
+  const delaysMs = [0, 100, 300];
+  for (const delayMs of delaysMs) {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      const result = await service.invalidateDocs(
+        signal.repositoryName,
+        signal.previousRepositoryName,
+      );
+      if (result?.ok) return true;
+    } catch (error) {
+      console.error("avkroken portal docs invalidation attempt failed", {
+        repository: signal.repositoryName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return false;
 }
 
 function response(value: unknown, status: number): Response {
@@ -135,8 +229,19 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     return response({ ok: true, ignored: "different organization" }, 202);
   }
 
+  const docsInvalidation = portalDocsInvalidation(event, payload);
+  const portalDocsInvalidated = docsInvalidation
+    ? await invalidatePortalDocs(env, docsInvalidation)
+    : null;
+
   const isNew = await recordWebhookDelivery(env, deliveryId, event, repo);
-  if (!isNew) return response({ ok: true, duplicate: true }, 202);
+  if (!isNew) {
+    return response({
+      ok: true,
+      duplicate: true,
+      ...(docsInvalidation ? { portalDocsInvalidated } : {}),
+    }, 202);
+  }
 
   const observedActivity = activityFromGitHubWebhook(
     deliveryId,
@@ -171,5 +276,6 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     invalidated: keys.length,
     activityRecorded,
     ...(securityRecord ? { securityRecorded } : {}),
+    ...(docsInvalidation ? { portalDocsInvalidated } : {}),
   }, 202);
 }

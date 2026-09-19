@@ -28,6 +28,7 @@ Wrangler definierar:
 - `ASSETS`
 - `STATS_DB`
 - `OBSERVABILITY` — Analytics Engine dataset `skvallerbyttan_observability`
+- `AVKROKEN_PORTAL_DOCS` — intern Cloudflare Service Binding till `avkroken-portal`, entrypoint `DocsInvalidationService`
 - cron `0 */6 * * *`
 - custom domain `skvallerbyttan.denied.se`
 - Cloudflare account via versionerad `account_id`
@@ -72,6 +73,8 @@ R1/R2/R3, Krösa-Majas client secret och båda webhook-credentials läses direkt
 
 Cloudflare Notifications och CASB använder samma `SKVALLERBYTTAN_CLOUDFLARE_WEBHOOK_SECRET`, men verifierar den via respektive protokolls/header-mekanism. GitHub använder den separata `SKVALLERBYTTAN_GITHUB_WEBHOOK_SECRET`.
 
+GitHub-providerwebhooken är också canonical trigger för portalens dokumentationsfreshness. På docs-relevanta `push`-events på publik default branch samt `repository`-events anropar Skvallerbyttan `AVKROKEN_PORTAL_DOCS.invalidateDocs(...)`. RPC-anropet kräver ingen ytterligare secret och går inte via publik HTTP. Tre korta retryförsök görs; vid fortsatt fel loggas signalfelet medan GitHub-eventet fortfarande kan lagras och portalens edge-TTL fungerar som fallback.
+
 Deploy av en Worker med Secrets Store-bindings kräver att W1 täcker Secrets Store Write. Varje bunden secret måste dessutom vara scope:ad för `workers`.
 
 ### Rotation
@@ -85,6 +88,30 @@ För en etablerad klass:
 3. synka berörda runtime-bindings/secrets,
 4. verifiera provider capabilities,
 5. revokera eller ta bort gamla migreringscredentials först när de inte längre används.
+
+## Event-ingress och downstream-signaler
+
+Canonical provider-ingress:
+
+- GitHub: `POST /webhooks/github`
+- Cloudflare Notifications: `POST /webhooks/cloudflare/notifications`
+- Cloudflare CASB: `POST /webhooks/cloudflare/casb`
+
+Provider-webhooks ska inte dupliceras i front-Workern enbart för att driva cacheinvalidation. Skvallerbyttan verifierar providerhändelsen först och skickar därefter en minimal intern signal till berörd konsument.
+
+För Avkroken-portalen används Service Binding-konfigurationen:
+
+```json
+{
+  "binding": "AVKROKEN_PORTAL_DOCS",
+  "service": "avkroken-portal",
+  "entrypoint": "DocsInvalidationService"
+}
+```
+
+`avkroken-portal` måste ha den namngivna entrypointen deployad innan en Skvallerbyttan-version med bindingen deployas. Bindingen är account-intern och använder inte GitHub- eller Cloudflare-webhooksecrets.
+
+Cloudflare Audit Logs och den schemalagda reconciliation-körningen fortsätter vara safety net för händelser som inte levereras via Notifications/CASB.
 
 ## Migrationer
 

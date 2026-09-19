@@ -14,12 +14,20 @@ export interface SecretsStoreSecretBinding {
   get(): Promise<string>;
 }
 
+export interface AvkrokenPortalDocsServiceBinding {
+  invalidateDocs(
+    repositoryName: string,
+    previousRepositoryName?: string | null,
+  ): Promise<{ ok: boolean; purged: string[] }>;
+}
+
 export type SecretValue = string | SecretsStoreSecretBinding;
 
 export interface Env {
   ASSETS: AssetsBinding;
   STATS_DB?: D1Database;
   OBSERVABILITY?: AnalyticsEngineBinding;
+  AVKROKEN_PORTAL_DOCS?: AvkrokenPortalDocsServiceBinding;
 
   GAMNACKEN_GITHUB_APP_CLIENT_ID: string;
   GAMNACKEN_GITHUB_APP_PRIVATE_KEY: SecretValue;

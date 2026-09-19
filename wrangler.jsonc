@@ -68,6 +68,13 @@
       "dataset": "skvallerbyttan_observability"
     }
   ],
+  "services": [
+    {
+      "binding": "AVKROKEN_PORTAL_DOCS",
+      "service": "avkroken-portal",
+      "entrypoint": "DocsInvalidationService"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
