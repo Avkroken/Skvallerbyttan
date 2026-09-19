@@ -378,7 +378,7 @@ function renderActivity(data) {
   $("#activity-ranking").innerHTML = ranking.map(([capability, count]) => `
     <button type="button" class="activity-row" data-capability="${esc(capability)}">
       <span>${esc(capabilityLabel(capability))}</span>
-      <span class="activity-bar"><span style="width:${Math.max(3, Math.round((count / max) * 100))}%"></span></span>
+      <span class="activity-bar"><span class="activity-level-${Math.max(1, Math.min(10, Math.ceil((count / max) * 10)))}"></span></span>
       <strong>${fmtInt(count)}</strong>
     </button>
   `).join("") || '<p class="small">Ingen aktivitet observerad i perioden.</p>';
