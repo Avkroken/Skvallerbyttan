@@ -47,15 +47,16 @@ GitHub organization secrets är canonical källa för de befintliga Cloudflare-c
 
 `.github/workflows/sync-cloudflare-runtime-secrets.yml` är den explicita transportvägen. Den läser de befintliga org-secretsen och synkar dem till Worker-runtime utan att operatören behöver se eller kopiera värdena.
 
-Transporten använder en separat org-secret `CLOUDFLARE_SECRET_SYNC_TOKEN`. Den credentialen är endast till för Wrangler/Workers secret-write och får aldrig kopieras in i Worker-runtime eller användas av observationsklienten. Workflowet vägrar köra om transporttoken och read-token är samma credential.
+Secret-sync återanvänder det befintliga `CLOUDFLARE_API_TOKEN`. När sync eller annan explicit Wrangler-drift kräver högre Cloudflare-behörighet höjs behörigheten temporärt på samma token, jobbet körs och verifieras, och tokenets behörighet sänks därefter tillbaka till den normala read-only-nivån. Ingen extra transporttoken och inget extra org-secret skapas.
 
-Secret-sync är endast `workflow_dispatch`. Det är avsiktligt: `wrangler secret bulk` skapar en ny Worker-version och deployar den direkt, så rotation/sync är en explicit produktionsåtgärd och inte en PR-gate eller vanlig merge-side-effect.
+Secret-sync är endast `workflow_dispatch`. Det är avsiktligt: `wrangler secret bulk` skapar en ny Worker-version och deployar den direkt, så sync är en explicit produktionsåtgärd och inte en PR-gate eller vanlig merge-side-effect.
 
-Rotationsflödet är därför:
+Rotations-/syncflödet är därför:
 
-1. uppdatera ett canonical org-secret en gång,
+1. höj vid behov behörigheten temporärt på befintligt `CLOUDFLARE_API_TOKEN`,
 2. kör **Sync Cloudflare runtime secrets**,
-3. verifiera workflowets secret-list och Skvallerbyttans provider health/capabilities.
+3. verifiera workflowets secret-list och Skvallerbyttans provider health/capabilities,
+4. sänk tokenets behörighet tillbaka till read-only.
 
 Webhook-secret för Notifications och CASB måste vara separata. Workflowet failar stängt om de är samma värde.
 
