@@ -55,9 +55,9 @@ Cloudflare-providerreads använder tre separata read-klasser enligt Avkrokens ce
 
 Klasserna är partitionerade och rangordnade utan arv. Ett R3-token ersätter därför inte R1 eller R2.
 
-Worker-runtime stödjer `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3`. Under migrationen kan det äldre `CLOUDFLARE_API_TOKEN` och därefter `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` användas som fallback om den begärda klassen ännu inte är provisionerad.
+Worker-runtime får `CLOUDFLARE_API_TOKEN_R1`, `CLOUDFLARE_API_TOKEN_R2` och `CLOUDFLARE_API_TOKEN_R3` som Cloudflare Secrets Store-bindings. Koden hämtar värdet asynkront via bindingens `get()`. Det äldre `CLOUDFLARE_API_TOKEN` och därefter `SKVALLERBYTTAN_CLOUDFLARE_API_TOKEN` finns endast som migrations-/lokal fallback när klassbinding saknas.
 
-Produktionsdeploy och explicit secret-sync använder W1 som operationscredential när `CLOUDFLARE_API_TOKEN_W1` finns i GitHub organization secrets. W1 distribueras inte till observationsruntime som providercredential.
+Produktionsdeploy och explicit secret-sync använder W1 som operationscredential när `CLOUDFLARE_API_TOKEN_W1` finns i GitHub organization secrets. W1 distribueras inte till observationsruntime som providercredential. Eftersom Wrangler-konfigurationen deklarerar Secrets Store-bindings kräver Cloudflare även Secrets Store Write på deploycredentialen.
 
 Observationskoden får inte använda W1/O1 som fallback vid 403. En saknad providerpermission ska i stället rapporteras som capability-/permission-state.
 
